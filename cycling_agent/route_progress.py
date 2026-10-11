@@ -1,4 +1,4 @@
-"""按照高德提供的道路里程，在骑行路线中定位坐标。"""
+"""按照路线分段里程，在骑行路线中定位坐标。"""
 
 import math
 from dataclasses import dataclass
@@ -75,7 +75,7 @@ def _point_inside_step(step: RouteStep, ratio: float) -> Coordinate:
 
 
 def route_road_distance(steps: tuple[RouteStep, ...]) -> int:
-    """返回可定位分段的高德道路里程总和。"""
+    """返回可定位分段的道路或轨迹里程总和。"""
 
     return sum(
         step.distance_meters
@@ -88,7 +88,7 @@ def point_at_road_distance(
     steps: tuple[RouteStep, ...],
     target_distance_meters: float,
 ) -> Coordinate:
-    """按高德累计道路里程返回对应的路线坐标。"""
+    """按累计道路或轨迹里程返回对应的路线坐标。"""
 
     road_distance = route_road_distance(steps)
     if road_distance <= 0:
@@ -193,7 +193,7 @@ def project_point_to_route(
     steps: tuple[RouteStep, ...],
     point: Coordinate,
 ) -> RouteProjection:
-    """求 POI 到路线的最近距离及其对应的高德道路累计里程。"""
+    """求 POI 到路线的最近距离及其对应的累计里程。"""
 
     best_projection = None
     walked_road_distance = 0.0

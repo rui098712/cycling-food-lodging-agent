@@ -9,6 +9,7 @@ from cycling_agent.llm_parser import (
     TripRequestDraft,
 )
 from cycling_agent.models import TripRequest
+from llm_main import complete_request
 
 
 class FakeResponses:
@@ -126,6 +127,23 @@ class LLMParserTests(unittest.TestCase):
 
         with self.assertRaises(LLMParsingError):
             parser.parse("测试行程")
+
+    def test_gpx_mode_can_fill_missing_place_names_from_track(self):
+        draft = TripRequestDraft(
+            start_city=None,
+            start_name=None,
+            end_city=None,
+            end_name=None,
+            lunch_standard_per_person=50,
+            dinner_standard_per_person=80,
+            lodging_standard_per_person=250,
+        )
+
+        request = complete_request(draft, gpx_route_name="河西走廊")
+
+        self.assertEqual(request.start_city, "GPX")
+        self.assertEqual(request.start_name, "河西走廊轨迹起点")
+        self.assertEqual(request.end_name, "河西走廊轨迹终点")
 
 
 if __name__ == "__main__":

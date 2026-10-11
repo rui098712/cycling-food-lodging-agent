@@ -14,7 +14,7 @@ class GeoPlace:
 
 @dataclass(frozen=True)
 class RouteStep:
-    """高德返回的一段实际骑行道路。"""
+    """一段可定位的骑行道路或 GPX 轨迹。"""
 
     distance_meters: int
     polyline: tuple[Coordinate, ...]
@@ -27,6 +27,11 @@ class BicycleRoute:
     distance_meters: int
     duration_seconds: int
     steps: tuple[RouteStep, ...]
+    source: str = "amap"
+
+    @property
+    def point_count(self) -> int:
+        return sum(len(step.polyline) for step in self.steps)
 
 
 @dataclass(frozen=True)

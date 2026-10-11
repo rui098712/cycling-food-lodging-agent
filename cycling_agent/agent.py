@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from cycling_agent.amap_client import AmapClient, AmapError
 from cycling_agent.models import (
+    BicycleRoute,
+    GeoPlace,
     LodgingOption,
     Poi,
     Recommendation,
@@ -33,14 +35,47 @@ class CyclingPlannerAgent:
         self.rest_stop_planner = RestStopPlanner(amap)
 
     def plan(self, request: TripRequest) -> TripPlan:
-        warnings: list[str] = []
-
         # 1. 理解输入：把地点名称转换成机器可使用的坐标。
         start = self.amap.geocode(request.start_name, request.start_city)
         end = self.amap.geocode(request.end_name, request.end_city)
 
         # 2. 调用路线工具：获得高德规划的骑行道路及每段道路里程。
         route = self.amap.bicycle_route(start.location, end.location)
+        return self._plan_on_resolved_route(request, start, end, route)
+
+    def plan_with_route(
+        self,
+        request: TripRequest,
+        route: BicycleRoute,
+    ) -> TripPlan:
+        """以外部传入的固定路线为唯一路线，不重新调用高德算路。"""
+
+        valid_steps = tuple(step for step in route.steps if step.polyline)
+        if not valid_steps:
+            raise ValueError("固定路线中没有可用坐标")
+
+        start = GeoPlace(
+            formatted_address=(
+                f"{request.start_city}{request.start_name}（GPX 轨迹起点）"
+            ),
+            location=valid_steps[0].polyline[0],
+        )
+        end = GeoPlace(
+            formatted_address=(
+                f"{request.end_city}{request.end_name}（GPX 轨迹终点）"
+            ),
+            location=valid_steps[-1].polyline[-1],
+        )
+        return self._plan_on_resolved_route(request, start, end, route)
+
+    def _plan_on_resolved_route(
+        self,
+        request: TripRequest,
+        start: GeoPlace,
+        end: GeoPlace,
+        route: BicycleRoute,
+    ) -> TripPlan:
+        warnings: list[str] = []
 
         # 3. 按路线长度动态增加搜索中心，连续覆盖 1/2～2/3 区间。
         lunch_candidates: dict[str, Poi] = {}

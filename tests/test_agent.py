@@ -93,6 +93,34 @@ class AgentWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(len(amap.distance_calls), 1)
 
+    def test_fixed_gpx_route_skips_geocoding_and_route_planning(self):
+        class FixedRouteAmap(FakeAmapClient):
+            def geocode(self, address, city):
+                raise AssertionError("GPX 模式不应调用地理编码")
+
+            def bicycle_route(self, origin, destination):
+                raise AssertionError("GPX 模式不应重新规划主路线")
+
+        route = BicycleRoute(
+            distance_meters=120_000,
+            duration_seconds=0,
+            steps=(
+                RouteStep(120_000, ((0.0, 0.0), (2.0, 0.0))),
+            ),
+            source="gpx",
+        )
+        request = TripRequest("甲市", "起点", "乙市", "终点", 50, 60, 200)
+
+        plan = CyclingPlannerAgent(FixedRouteAmap()).plan_with_route(
+            request,
+            route,
+        )
+
+        self.assertIs(plan.route, route)
+        self.assertEqual(plan.route.source, "gpx")
+        self.assertIn("GPX 轨迹起点", plan.start.formatted_address)
+        self.assertTrue(plan.rest_stops)
+
     def test_pair_over_three_kilometers_is_rejected(self):
         amap = FakeAmapClient(pair_distance=3001)
         agent = CyclingPlannerAgent(amap)

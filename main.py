@@ -122,8 +122,17 @@ def print_trip_plan(plan):
     print("\n=== 路线概况 ===")
     print(f"起点：{plan.start.formatted_address}")
     print(f"终点：{plan.end.formatted_address}")
-    print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
-    print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
+    if plan.route.source == "gpx":
+        print("路线来源：导入的 GPX 固定轨迹（未重新算路）")
+        print(f"GPX 轨迹累计里程：{plan.route.distance_meters / 1000:.2f} 公里")
+    else:
+        print("路线来源：高德骑行路径规划")
+        print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
+    print(f"路线坐标点数：{plan.route.point_count}")
+    if plan.route.duration_seconds > 0:
+        print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
+    else:
+        print("预计时间：GPX 未提供可用骑行时长")
     print(
         "午饭搜索范围：骑行道路里程的 50%～66.7%，"
         f"动态生成 {plan.lunch_search_point_count} 个搜索点"

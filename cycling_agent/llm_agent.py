@@ -5,7 +5,7 @@ from typing import Protocol
 
 from cycling_agent.agent import CyclingPlannerAgent
 from cycling_agent.llm_parser import TripRequestDraft
-from cycling_agent.models import TripPlan, TripRequest
+from cycling_agent.models import BicycleRoute, TripPlan, TripRequest
 
 
 @dataclass(frozen=True)
@@ -42,10 +42,18 @@ class LLMCyclingAgent:
     def understand(self, user_text: str) -> TripRequestDraft:
         return self.parser.parse(user_text)
 
-    def plan_request(self, request: TripRequest) -> LLMPlanningResult:
+    def plan_request(
+        self,
+        request: TripRequest,
+        route: BicycleRoute | None = None,
+    ) -> LLMPlanningResult:
         return LLMPlanningResult(
             request=request,
-            plan=self.planner.plan(request),
+            plan=(
+                self.planner.plan_with_route(request, route)
+                if route is not None
+                else self.planner.plan(request)
+            ),
         )
 
     def plan(self, user_text: str) -> LLMPlanningResult:
