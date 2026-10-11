@@ -1,8 +1,16 @@
 """按照高德提供的道路里程，在骑行路线中定位坐标。"""
 
 import math
+from dataclasses import dataclass
 
 from cycling_agent.models import Coordinate, RouteStep
+
+
+@dataclass(frozen=True)
+class RouteProjection:
+    route_progress_meters: float
+    distance_from_route_meters: float
+    route_point: Coordinate
 
 
 def coordinate_distance_meters(point1: Coordinate, point2: Coordinate) -> float:
@@ -66,33 +74,187 @@ def _point_inside_step(step: RouteStep, ratio: float) -> Coordinate:
     return points[-1]
 
 
+def route_road_distance(steps: tuple[RouteStep, ...]) -> int:
+    """返回可定位分段的高德道路里程总和。"""
+
+    return sum(
+        step.distance_meters
+        for step in steps
+        if step.distance_meters > 0 and step.polyline
+    )
+
+
+def point_at_road_distance(
+    steps: tuple[RouteStep, ...],
+    target_distance_meters: float,
+) -> Coordinate:
+    """按高德累计道路里程返回对应的路线坐标。"""
+
+    road_distance = route_road_distance(steps)
+    if road_distance <= 0:
+        raise ValueError("路线没有可用的道路分段")
+    if not 0 <= target_distance_meters <= road_distance:
+        raise ValueError("目标道路里程超出路线范围")
+
+    walked_distance = 0
+    for step in steps:
+        if step.distance_meters <= 0 or not step.polyline:
+            continue
+
+        step_end_distance = walked_distance + step.distance_meters
+        if step_end_distance >= target_distance_meters:
+            distance_inside_step = target_distance_meters - walked_distance
+            ratio_inside_step = distance_inside_step / step.distance_meters
+            return _point_inside_step(step, ratio_inside_step)
+
+        walked_distance = step_end_distance
+
+    valid_steps = tuple(step for step in steps if step.polyline)
+    return valid_steps[-1].polyline[-1]
+
+
 def point_at_road_ratio(steps: tuple[RouteStep, ...], ratio: float) -> Coordinate:
     """按 step_distance 的累计实际道路里程，返回路线某一比例处的坐标。"""
 
     if not 0 <= ratio <= 1:
         raise ValueError("ratio 必须在 0 到 1 之间")
 
-    valid_steps = tuple(
-        step for step in steps if step.distance_meters > 0 and step.polyline
+    road_distance = route_road_distance(steps)
+    return point_at_road_distance(steps, road_distance * ratio)
+
+
+def road_window_search_points(
+    steps: tuple[RouteStep, ...],
+    start_meters: float,
+    end_meters: float,
+    max_road_gap_meters: int = 4000,
+) -> tuple[tuple[float, Coordinate], ...]:
+    """在指定道路里程窗口内生成均匀的 POI 搜索中心。"""
+
+    if max_road_gap_meters <= 0:
+        raise ValueError("max_road_gap_meters 必须大于 0")
+    if start_meters < 0 or end_meters < start_meters:
+        raise ValueError("道路里程窗口不合法")
+
+    total_distance = route_road_distance(steps)
+    end_meters = min(end_meters, total_distance)
+    if start_meters > end_meters:
+        return ()
+
+    window_length = end_meters - start_meters
+    interval_count = max(1, math.ceil(window_length / max_road_gap_meters))
+    distances = tuple(
+        start_meters + window_length * index / interval_count
+        for index in range(interval_count + 1)
     )
-    if not valid_steps:
-        raise ValueError("路线没有可用的道路分段")
+    return tuple(
+        (distance, point_at_road_distance(steps, distance))
+        for distance in distances
+    )
 
-    # 这里的总里程和累计里程都来自高德 step_distance，而不是经纬度直线距离。
-    road_distance = sum(step.distance_meters for step in valid_steps)
-    target_distance = road_distance * ratio
-    walked_distance = 0
 
-    for step in valid_steps:
-        step_end_distance = walked_distance + step.distance_meters
-        if step_end_distance >= target_distance:
-            distance_inside_step = target_distance - walked_distance
-            ratio_inside_step = distance_inside_step / step.distance_meters
-            return _point_inside_step(step, ratio_inside_step)
+def _project_to_segment(
+    point: Coordinate,
+    segment_start: Coordinate,
+    segment_end: Coordinate,
+) -> tuple[float, Coordinate, float]:
+    """把坐标投影到一小段折线上，返回比例、投影坐标和距离。"""
 
-        walked_distance = step_end_distance
+    longitude, latitude = point
+    longitude1, latitude1 = segment_start
+    longitude2, latitude2 = segment_end
+    latitude_scale = 111_320.0
+    longitude_scale = latitude_scale * math.cos(
+        math.radians((latitude + latitude1 + latitude2) / 3)
+    )
 
-    return valid_steps[-1].polyline[-1]
+    start_x = (longitude1 - longitude) * longitude_scale
+    start_y = (latitude1 - latitude) * latitude_scale
+    end_x = (longitude2 - longitude) * longitude_scale
+    end_y = (latitude2 - latitude) * latitude_scale
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    squared_length = delta_x * delta_x + delta_y * delta_y
+
+    if squared_length == 0:
+        ratio = 0.0
+    else:
+        ratio = -(start_x * delta_x + start_y * delta_y) / squared_length
+        ratio = min(max(ratio, 0.0), 1.0)
+
+    projected = (
+        longitude1 + (longitude2 - longitude1) * ratio,
+        latitude1 + (latitude2 - latitude1) * ratio,
+    )
+    return ratio, projected, coordinate_distance_meters(point, projected)
+
+
+def project_point_to_route(
+    steps: tuple[RouteStep, ...],
+    point: Coordinate,
+) -> RouteProjection:
+    """求 POI 到路线的最近距离及其对应的高德道路累计里程。"""
+
+    best_projection = None
+    walked_road_distance = 0.0
+
+    for step in steps:
+        if step.distance_meters <= 0 or not step.polyline:
+            continue
+
+        points = step.polyline
+        if len(points) == 1:
+            distance = coordinate_distance_meters(point, points[0])
+            projection = RouteProjection(walked_road_distance, distance, points[0])
+            if (
+                best_projection is None
+                or distance < best_projection.distance_from_route_meters
+            ):
+                best_projection = projection
+            walked_road_distance += step.distance_meters
+            continue
+
+        segment_lengths = [
+            coordinate_distance_meters(points[index - 1], points[index])
+            for index in range(1, len(points))
+        ]
+        geometric_step_length = sum(segment_lengths)
+        walked_geometric_distance = 0.0
+
+        for index, segment_length in enumerate(segment_lengths):
+            ratio, projected, distance = _project_to_segment(
+                point,
+                points[index],
+                points[index + 1],
+            )
+            if geometric_step_length > 0:
+                step_ratio = (
+                    walked_geometric_distance + segment_length * ratio
+                ) / geometric_step_length
+            else:
+                step_ratio = 0.0
+
+            projection = RouteProjection(
+                route_progress_meters=(
+                    walked_road_distance + step.distance_meters * step_ratio
+                ),
+                distance_from_route_meters=distance,
+                route_point=projected,
+            )
+            if (
+                best_projection is None
+                or distance < best_projection.distance_from_route_meters
+            ):
+                best_projection = projection
+
+            walked_geometric_distance += segment_length
+
+        walked_road_distance += step.distance_meters
+
+    if best_projection is None:
+        raise ValueError("路线没有可用于投影的坐标")
+
+    return best_projection
 
 
 def lunch_search_points(
@@ -104,11 +266,7 @@ def lunch_search_points(
     if max_road_gap_meters <= 0:
         raise ValueError("max_road_gap_meters 必须大于 0")
 
-    road_distance = sum(
-        step.distance_meters
-        for step in steps
-        if step.distance_meters > 0 and step.polyline
-    )
+    road_distance = route_road_distance(steps)
     if road_distance <= 0:
         raise ValueError("路线没有可用的道路分段")
 

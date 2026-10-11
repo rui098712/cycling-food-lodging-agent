@@ -40,9 +40,17 @@ class FakeAmapClient:
         keywords=None,
         route_ratio=None,
         page_size=20,
+        sort_rule="weight",
     ):
         self.search_calls.append((location, types, radius, route_ratio))
-        kind = "测试餐厅" if types == "050000" else "测试酒店"
+        if types == "010100":
+            kind = "测试加油站"
+        elif types == "060000":
+            kind = "测试便利店"
+        elif types == "050000":
+            kind = "测试餐厅"
+        else:
+            kind = "测试酒店"
         return (
             Poi(
                 poi_id=f"{kind}-{route_ratio}",
@@ -67,14 +75,15 @@ class AgentWorkflowTests(unittest.TestCase):
 
         self.assertEqual(plan.route.distance_meters, 120_000)
         self.assertEqual(plan.lunch_search_point_count, 6)
-        self.assertEqual(len(amap.search_calls), 8)
-        lunch_ratios = [call[3] for call in amap.search_calls[:6]]
+        lunch_calls = [call for call in amap.search_calls if call[3] is not None]
+        lunch_ratios = [call[3] for call in lunch_calls]
         self.assertEqual(len(lunch_ratios), 6)
         self.assertAlmostEqual(lunch_ratios[0], 0.5)
         self.assertAlmostEqual(lunch_ratios[-1], 2 / 3)
-        self.assertEqual(amap.search_calls[6][1], "100000")
-        self.assertEqual(amap.search_calls[7][1], "050000")
+        self.assertTrue(any(call[1] == "010100" for call in amap.search_calls))
         self.assertTrue(plan.lunch_recommendations)
+        self.assertTrue(plan.rest_stops)
+        self.assertTrue(any(stop.poi is not None for stop in plan.rest_stops))
         self.assertTrue(plan.lodging_options)
         self.assertIsNotNone(plan.lodging_options[0].dinner)
         self.assertEqual(

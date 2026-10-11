@@ -9,6 +9,7 @@ from cycling_agent.models import (
     TripRequest,
 )
 from cycling_agent.ranking import rank_pois
+from cycling_agent.rest_stop_planner import RestStopPlanner
 from cycling_agent.route_progress import coordinate_distance_meters, lunch_search_points
 
 
@@ -26,6 +27,7 @@ class CyclingPlannerAgent:
 
     def __init__(self, amap: AmapClient):
         self.amap = amap
+        self.rest_stop_planner = RestStopPlanner(amap)
 
     def plan(self, request: TripRequest) -> TripPlan:
         # 1. 理解输入：把地点名称转换成机器可使用的坐标。
@@ -72,6 +74,7 @@ class CyclingPlannerAgent:
             end=end,
             route=route,
             lunch_search_point_count=len(search_points),
+            rest_stops=self.rest_stop_planner.plan(route),
             lunch_recommendations=rank_pois(
                 tuple(lunch_candidates.values()), request.lunch_budget
             ),

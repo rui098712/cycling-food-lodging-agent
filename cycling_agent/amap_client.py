@@ -144,12 +144,13 @@ class AmapClient:
         keywords: str | None = None,
         route_ratio: float | None = None,
         page_size: int = 20,
+        sort_rule: str = "weight",
     ) -> tuple[Poi, ...]:
         params = {
             "location": self.format_coordinate(location),
             "types": types,
             "radius": radius,
-            "sortrule": "weight",
+            "sortrule": sort_rule,
             "show_fields": "business",
             "page_size": min(page_size, 25),
         }

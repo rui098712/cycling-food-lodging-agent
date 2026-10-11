@@ -80,6 +80,42 @@ def print_lodging_options(options):
         )
 
 
+def print_rest_stops(rest_stops):
+    print("\n=== 沿途休息点 ===")
+
+    if not rest_stops:
+        print("  路程不足 15 公里，无需安排周期性休息点")
+        return
+
+    mode_names = {
+        "preferred": "15～20 公里优选",
+        "preferred_nearby": "15～20 公里、路线周边 300 米内",
+        "extended": "延长至 20～30 公里",
+        "extended_nearby": "延长至 20～30 公里、路线周边 300 米内",
+    }
+
+    for stop in rest_stops:
+        if stop.poi is None:
+            print(
+                f"  {stop.sequence}. 路线 {stop.search_start_meters / 1000:.1f}～"
+                f"{stop.search_end_meters / 1000:.1f} 公里内未找到加油站或商店"
+            )
+            continue
+
+        print(
+            f"  {stop.sequence}. {stop.poi.name}（{stop.category}，"
+            f"{mode_names.get(stop.search_mode, stop.search_mode)}）"
+        )
+        print(
+            f"     距上一个起算点 {stop.distance_since_previous_meters / 1000:.2f} 公里，"
+            f"全程进度 {stop.route_progress_meters / 1000:.2f} 公里"
+        )
+        print(
+            f"     距原骑行路线约 {stop.distance_from_route_meters} 米，"
+            f"地址：{stop.poi.address or '暂无'}"
+        )
+
+
 def main():
     load_dotenv()
     api_key = os.getenv("AMAP_API_KEY")
@@ -123,6 +159,7 @@ def main():
     )
 
     print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
+    print_rest_stops(plan.rest_stops)
     print_lodging_options(plan.lodging_options)
 
 
