@@ -115,25 +115,50 @@ class AmapClient:
             steps=steps,
         )
 
+    def bicycle_distance(
+        self,
+        origin: Coordinate,
+        destination: Coordinate,
+    ) -> int:
+        """只查询两点间的骑行道路里程，用于验证组合约束。"""
+
+        data = self._get(
+            "https://restapi.amap.com/v5/direction/bicycling",
+            {
+                "origin": self.format_coordinate(origin),
+                "destination": self.format_coordinate(destination),
+            },
+        )
+        paths = data.get("route", {}).get("paths", [])
+        if not paths:
+            raise AmapError("两地点之间没有可用的骑行路线")
+
+        return int(paths[0]["distance"])
+
     def search_nearby(
         self,
         location: Coordinate,
         *,
         types: str,
         radius: int,
+        keywords: str | None = None,
         route_ratio: float | None = None,
         page_size: int = 20,
     ) -> tuple[Poi, ...]:
+        params = {
+            "location": self.format_coordinate(location),
+            "types": types,
+            "radius": radius,
+            "sortrule": "weight",
+            "show_fields": "business",
+            "page_size": min(page_size, 25),
+        }
+        if keywords:
+            params["keywords"] = keywords
+
         data = self._get(
             "https://restapi.amap.com/v5/place/around",
-            {
-                "location": self.format_coordinate(location),
-                "types": types,
-                "radius": radius,
-                "sortrule": "weight",
-                "show_fields": "business",
-                "page_size": min(page_size, 25),
-            },
+            params,
         )
 
         results = []

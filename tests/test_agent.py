@@ -7,8 +7,10 @@ from cycling_agent.models import BicycleRoute, GeoPlace, Poi, RouteStep, TripReq
 class FakeAmapClient:
     """离线替代高德客户端，用于验证 Agent 的完整工具调用流程。"""
 
-    def __init__(self):
+    def __init__(self, pair_distance=1200):
         self.search_calls = []
+        self.distance_calls = []
+        self.pair_distance = pair_distance
 
     def geocode(self, address, city):
         if address == "起点":
@@ -17,17 +19,30 @@ class FakeAmapClient:
 
     def bicycle_route(self, origin, destination):
         return BicycleRoute(
-            distance_meters=1000,
-            duration_seconds=600,
+            distance_meters=120_000,
+            duration_seconds=36_000,
             steps=(
-                RouteStep(600, ((0.0, 0.0), (1.0, 0.0))),
-                RouteStep(400, ((1.0, 0.0), (2.0, 0.0))),
+                RouteStep(72_000, ((0.0, 0.0), (1.0, 0.0))),
+                RouteStep(48_000, ((1.0, 0.0), (2.0, 0.0))),
             ),
         )
 
-    def search_nearby(self, location, *, types, radius, route_ratio=None, page_size=20):
+    def bicycle_distance(self, origin, destination):
+        self.distance_calls.append((origin, destination))
+        return self.pair_distance
+
+    def search_nearby(
+        self,
+        location,
+        *,
+        types,
+        radius,
+        keywords=None,
+        route_ratio=None,
+        page_size=20,
+    ):
         self.search_calls.append((location, types, radius, route_ratio))
-        kind = "餐厅" if types == "050000" else "住宿"
+        kind = "测试餐厅" if types == "050000" else "测试酒店"
         return (
             Poi(
                 poi_id=f"{kind}-{route_ratio}",
@@ -50,17 +65,35 @@ class AgentWorkflowTests(unittest.TestCase):
 
         plan = agent.plan(request)
 
-        self.assertEqual(plan.route.distance_meters, 1000)
-        self.assertEqual(len(amap.search_calls), 5)
-        self.assertEqual(
-            [call[3] for call in amap.search_calls[:3]],
-            [0.5, 7 / 12, 2 / 3],
-        )
-        self.assertEqual(amap.search_calls[3][1], "050000")
-        self.assertEqual(amap.search_calls[4][1], "100000")
+        self.assertEqual(plan.route.distance_meters, 120_000)
+        self.assertEqual(plan.lunch_search_point_count, 6)
+        self.assertEqual(len(amap.search_calls), 8)
+        lunch_ratios = [call[3] for call in amap.search_calls[:6]]
+        self.assertEqual(len(lunch_ratios), 6)
+        self.assertAlmostEqual(lunch_ratios[0], 0.5)
+        self.assertAlmostEqual(lunch_ratios[-1], 2 / 3)
+        self.assertEqual(amap.search_calls[6][1], "100000")
+        self.assertEqual(amap.search_calls[7][1], "050000")
         self.assertTrue(plan.lunch_recommendations)
-        self.assertTrue(plan.dinner_recommendations)
-        self.assertTrue(plan.lodging_recommendations)
+        self.assertTrue(plan.lodging_options)
+        self.assertIsNotNone(plan.lodging_options[0].dinner)
+        self.assertEqual(
+            plan.lodging_options[0].dinner_road_distance_meters,
+            1200,
+        )
+        self.assertEqual(len(amap.distance_calls), 1)
+
+    def test_pair_over_three_kilometers_is_rejected(self):
+        amap = FakeAmapClient(pair_distance=3001)
+        agent = CyclingPlannerAgent(amap)
+        request = TripRequest("甲市", "起点", "乙市", "终点", 50, 60, 200)
+
+        plan = agent.plan(request)
+
+        self.assertTrue(plan.lodging_options)
+        self.assertIsNone(plan.lodging_options[0].dinner)
+        self.assertIsNone(plan.lodging_options[0].dinner_road_distance_meters)
+        self.assertEqual(len(amap.distance_calls), 1)
 
 
 if __name__ == "__main__":

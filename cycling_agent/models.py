@@ -50,6 +50,13 @@ class Recommendation:
 
 
 @dataclass(frozen=True)
+class LodgingOption:
+    lodging: Recommendation
+    dinner: Recommendation | None = None
+    dinner_road_distance_meters: int | None = None
+
+
+@dataclass(frozen=True)
 class TripRequest:
     start_city: str
     start_name: str
@@ -65,6 +72,6 @@ class TripPlan:
     start: GeoPlace
     end: GeoPlace
     route: BicycleRoute
+    lunch_search_point_count: int
     lunch_recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
-    dinner_recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
-    lodging_recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
+    lodging_options: tuple[LodgingOption, ...] = field(default_factory=tuple)

@@ -5,8 +5,8 @@ import math
 from cycling_agent.models import Coordinate, RouteStep
 
 
-def _segment_length(point1: Coordinate, point2: Coordinate) -> float:
-    """仅用于在一条 step 的折线内部计算各小段的相对长度。"""
+def coordinate_distance_meters(point1: Coordinate, point2: Coordinate) -> float:
+    """计算两坐标的球面直线距离，用于折线插值或候选预筛选。"""
 
     longitude1, latitude1 = point1
     longitude2, latitude2 = point2
@@ -36,7 +36,7 @@ def _point_inside_step(step: RouteStep, ratio: float) -> Coordinate:
         return points[0]
 
     segment_lengths = [
-        _segment_length(points[index - 1], points[index])
+        coordinate_distance_meters(points[index - 1], points[index])
         for index in range(1, len(points))
     ]
     polyline_length = sum(segment_lengths)
@@ -95,8 +95,29 @@ def point_at_road_ratio(steps: tuple[RouteStep, ...], ratio: float) -> Coordinat
     return valid_steps[-1].polyline[-1]
 
 
-def lunch_search_points(steps: tuple[RouteStep, ...]) -> tuple[tuple[float, Coordinate], ...]:
-    """在道路里程 1/2 到 2/3 之间均匀选取三个午饭搜索中心。"""
+def lunch_search_points(
+    steps: tuple[RouteStep, ...],
+    max_road_gap_meters: int = 4000,
+) -> tuple[tuple[float, Coordinate], ...]:
+    """动态覆盖道路里程 1/2～2/3 区间，保证采样点道路间隔不超上限。"""
 
-    ratios = (0.5, 7 / 12, 2 / 3)
+    if max_road_gap_meters <= 0:
+        raise ValueError("max_road_gap_meters 必须大于 0")
+
+    road_distance = sum(
+        step.distance_meters
+        for step in steps
+        if step.distance_meters > 0 and step.polyline
+    )
+    if road_distance <= 0:
+        raise ValueError("路线没有可用的道路分段")
+
+    start_ratio = 0.5
+    end_ratio = 2 / 3
+    lunch_interval_meters = road_distance * (end_ratio - start_ratio)
+    interval_count = max(1, math.ceil(lunch_interval_meters / max_road_gap_meters))
+    ratios = tuple(
+        start_ratio + (end_ratio - start_ratio) * index / interval_count
+        for index in range(interval_count + 1)
+    )
     return tuple((ratio, point_at_road_ratio(steps, ratio)) for ratio in ratios)

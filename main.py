@@ -49,6 +49,37 @@ def print_recommendations(title, recommendations, price_unit="元/人"):
         print(f"     理由：{'；'.join(recommendation.reasons)}")
 
 
+def print_lodging_options(options):
+    print("\n=== 住宿优先推荐 ===")
+
+    if not options:
+        print("  没有找到终点附近的合适住宿")
+        return
+
+    for index, option in enumerate(options, start=1):
+        lodging = option.lodging.poi
+        lodging_cost = (
+            f"高德参考消费 {lodging.cost:.0f} 元"
+            if lodging.cost is not None
+            else "住宿价格暂无"
+        )
+
+        print(f"  {index}. {lodging.name}（推荐分 {option.lodging.score:.1f}）")
+        print(f"     住宿：{lodging_cost}，地址：{lodging.address or '暂无'}")
+
+        if option.dinner is None:
+            print("     晚饭：3 公里实际骑行道路范围内暂无已验证结果")
+            continue
+
+        dinner = option.dinner.poi
+        dinner_cost = f"{dinner.cost:.0f} 元/人" if dinner.cost is not None else "价格暂无"
+        print(f"     晚饭：{dinner.name}（{dinner_cost}）")
+        print(
+            "     住宿到晚饭的实际骑行道路距离："
+            f"{option.dinner_road_distance_meters / 1000:.2f} 公里"
+        )
+
+
 def main():
     load_dotenv()
     api_key = os.getenv("AMAP_API_KEY")
@@ -86,13 +117,13 @@ def main():
     print(f"终点：{plan.end.formatted_address}")
     print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
     print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
-    print("午饭搜索范围：骑行道路里程的 50%～66.7%")
+    print(
+        "午饭搜索范围：骑行道路里程的 50%～66.7%，"
+        f"动态生成 {plan.lunch_search_point_count} 个搜索点"
+    )
 
     print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
-    print_recommendations("=== 终点晚饭推荐 ===", plan.dinner_recommendations)
-    print_recommendations(
-        "=== 终点住宿推荐 ===", plan.lodging_recommendations, price_unit="元（高德参考消费）"
-    )
+    print_lodging_options(plan.lodging_options)
 
 
 if __name__ == "__main__":
