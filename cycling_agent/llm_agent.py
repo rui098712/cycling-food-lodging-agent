@@ -1,9 +1,10 @@
 """LLM 理解层与确定性地图规划层的组合入口。"""
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from cycling_agent.agent import CyclingPlannerAgent
-from cycling_agent.llm_parser import LLMTripRequestParser, TripRequestDraft
+from cycling_agent.llm_parser import TripRequestDraft
 from cycling_agent.models import TripPlan, TripRequest
 
 
@@ -15,6 +16,14 @@ class LLMPlanningResult:
     plan: TripPlan
 
 
+class TripRequestParser(Protocol):
+    """任意云端或本地模型解析器都要实现的最小接口。"""
+
+    model: str
+
+    def parse(self, user_text: str) -> TripRequestDraft: ...
+
+
 class LLMCyclingAgent:
     """
     混合 Agent：LLM 负责语言理解，普通代码负责真实地图计算。
@@ -24,7 +33,7 @@ class LLMCyclingAgent:
 
     def __init__(
         self,
-        parser: LLMTripRequestParser,
+        parser: TripRequestParser,
         planner: CyclingPlannerAgent,
     ):
         self.parser = parser

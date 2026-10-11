@@ -9,6 +9,18 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from cycling_agent.models import TripRequest
 
 
+TRIP_EXTRACTION_INSTRUCTIONS = """
+你是骑行行程参数提取器。只提取用户明确表达的信息，不调用地图，不猜测路线或地理位置。
+
+规则：
+1. 分别提取起点行政区、起点名称、终点行政区、终点名称。
+2. 县、自治县或区可以与市名一起保留在 city 字段，不要擅自改成另一个城市。
+3. 午饭和晚饭预算按“元/人”提取，住宿预算按“元/晚”提取。
+4. 信息没有明确出现时返回 null，禁止自行补全预算或地名。
+5. 你只负责理解输入；真实道路里程、POI 和推荐由后续地图工具计算。
+""".strip()
+
+
 class LLMParsingError(RuntimeError):
     """LLM 请求失败，或没有返回可用的结构化结果。"""
 
@@ -97,16 +109,7 @@ class LLMTripRequestParser:
     """用 OpenAI Structured Outputs 提取行程参数。"""
 
     DEFAULT_MODEL = "gpt-6-astra"
-    SYSTEM_INSTRUCTIONS = """
-你是骑行行程参数提取器。只提取用户明确表达的信息，不调用地图，不猜测路线或地理位置。
-
-规则：
-1. 分别提取起点行政区、起点名称、终点行政区、终点名称。
-2. 县、自治县或区可以与市名一起保留在 city 字段，不要擅自改成另一个城市。
-3. 午饭和晚饭预算按“元/人”提取，住宿预算按“元/晚”提取。
-4. 信息没有明确出现时返回 null，禁止自行补全预算或地名。
-5. 你只负责理解输入；真实道路里程、POI 和推荐由后续地图工具计算。
-""".strip()
+    SYSTEM_INSTRUCTIONS = TRIP_EXTRACTION_INSTRUCTIONS
 
     def __init__(
         self,

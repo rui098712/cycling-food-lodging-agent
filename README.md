@@ -2,7 +2,7 @@
 
 输入骑行起终点与三项预算，程序调用高德 Web 服务获得骑行路线，在实际骑行道路里程的 50%～66.7% 区间连续搜索午饭；每骑行 15～20 公里优先安排加油站、其次安排便利店或超市作为休息点；到达终点后优先推荐住宿，如能找到实际骑行道路距离不超过 3 公里的晚饭点，则附加到住宿方案中。
 
-现在可以用一句自然语言输入完整需求。LLM 通过 OpenAI Responses API 的 Structured Outputs 把文本转换为严格的 `TripRequest`，然后交给原有高德工具链执行。
+现在可以用一句自然语言输入完整需求。项目默认使用本机 Ollama 中的 `qwen3:4b`，通过结构化输出把文本转换为严格的 `TripRequest`，然后交给原有高德工具链执行。不需要 OpenAI 账号或 API Key，也保留了可选的 OpenAI 后端。
 
 ## 为什么这是一个 Agent 项目
 
@@ -34,6 +34,7 @@
 │   ├── agent.py                    # Agent 编排与工具调用流程
 │   ├── amap_client.py              # 高德地图工具
 │   ├── llm_parser.py               # Structured Outputs 参数提取
+│   ├── ollama_parser.py            # Ollama 本地模型参数提取
 │   ├── llm_agent.py                # LLM 与地图规划器的组合层
 │   ├── models.py                   # 输入、路线、POI 等数据模型
 │   ├── ranking.py                  # 可解释推荐排序
@@ -42,17 +43,30 @@
 └── tests/                           # 不消耗高德额度的离线测试
 ```
 
-## 运行 LLM 版本
+## 运行 LLM 版本（默认本地 Ollama）
 
-先在 `.env` 中配置：
+首次使用先安装 Ollama，然后下载模型：
+
+```bash
+ollama pull qwen3:4b
+```
+
+确保 Ollama 应用正在运行。如果没有启动，可以在一个单独终端中运行：
+
+```bash
+ollama serve
+```
+
+在 `.env` 中保留高德 Key，并添加本地模型配置：
 
 ```text
 AMAP_API_KEY=你的高德Web服务Key
-OPENAI_API_KEY=你的OpenAI API Key
-OPENAI_MODEL=gpt-6-astra
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen3:4b
+OLLAMA_HOST=http://127.0.0.1:11434
 ```
 
-`OPENAI_MODEL` 可以修改，不填时默认使用 `gpt-6-astra`。不要把 `.env` 上传到 GitHub；仓库中的 `.env.example` 只包含占位符。
+`OLLAMA_MODEL` 可以在以后换成其他已下载的模型。不要把 `.env` 上传到 GitHub；仓库中的 `.env.example` 只包含占位符。
 
 ```bash
 source .venv/bin/activate
@@ -65,11 +79,19 @@ python llm_main.py
 我想从武威市天祝县达隆宾馆骑到张掖市七彩丹霞景区，午饭50，晚饭80，住宿250。
 ```
 
-如果你还没有 OpenAI API Key，仍可以运行原来的表单式版本：
+如果不想启动任何 LLM，仍可以运行原来的表单式版本：
 
 ```bash
 source .venv/bin/activate
 python main.py
+```
+
+如果以后获得 OpenAI API Key，只需把 `.env` 改为：
+
+```text
+LLM_PROVIDER=openai
+OPENAI_API_KEY=你的OpenAI_API_Key
+OPENAI_MODEL=gpt-6-astra
 ```
 
 运行离线测试：
@@ -95,6 +117,6 @@ python -m unittest discover -s tests -v
 
 ## 简历描述（当前版本可使用）
 
-> 独立开发骑行食宿规划 LLM Agent，基于 OpenAI Responses API Structured Outputs 将中文自然语言转换为强类型行程参数，并通过依赖注入实现 LLM 层的离线测试；封装高德地理编码、骑行路径和 POI 搜索工具，基于实际道路里程动态覆盖午饭区间与周期休息点，并以确定性代码验证预算、偏航和住宿到晚饭的 3 公里道路约束。
+> 独立开发骑行食宿规划 LLM Agent，接入 Ollama/Qwen 本地模型并使用 Pydantic JSON Schema 将中文自然语言转换为强类型行程参数，实现本地与 OpenAI 可替换的模型层；封装高德地理编码、骑行路径和 POI 搜索工具，基于实际道路里程动态覆盖午饭区间与周期休息点，并以确定性代码验证预算、偏航和住宿到晚饭的 3 公里道路约束。
 
 当前 LLM 负责参数提取，地图工具调用由可测试工作流编排。后续加入真正的 function calling、对话状态和评测后，再在简历中声明“LLM 自主工具选择与多轮对话”。

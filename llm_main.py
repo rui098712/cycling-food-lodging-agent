@@ -9,6 +9,7 @@ from cycling_agent.amap_client import AmapClient, AmapError
 from cycling_agent.llm_agent import LLMCyclingAgent
 from cycling_agent.llm_parser import LLMParsingError, LLMTripRequestParser
 from cycling_agent.models import TripRequest
+from cycling_agent.ollama_parser import OllamaTripRequestParser
 from main import print_trip_plan, read_positive_number
 
 
@@ -43,8 +44,28 @@ def complete_request(draft) -> TripRequest:
     return draft.to_trip_request(**values)
 
 
-def print_understanding(request: TripRequest, model: str) -> None:
+def create_parser(provider: str | None = None):
+    """根据配置创建本地或云端解析器。"""
+
+    provider = (provider or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
+    if provider == "ollama":
+        return provider, OllamaTripRequestParser()
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError(
+                "LLM_PROVIDER=openai 时需要在 .env 中配置 OPENAI_API_KEY"
+            )
+        return provider, LLMTripRequestParser()
+    raise ValueError("LLM_PROVIDER 只能是 ollama 或 openai")
+
+
+def print_understanding(
+    request: TripRequest,
+    provider: str,
+    model: str,
+) -> None:
     print("\n=== LLM 理解结果 ===")
+    print(f"LLM 后端：{provider}")
     print(f"模型：{model}")
     print(f"起点：{request.start_city} {request.start_name}")
     print(f"终点：{request.end_city} {request.end_name}")
@@ -58,18 +79,16 @@ def print_understanding(request: TripRequest, model: str) -> None:
 def main():
     load_dotenv()
     amap_api_key = os.getenv("AMAP_API_KEY")
-    openai_api_key = os.getenv("OPENAI_API_KEY")
 
     if not amap_api_key:
         print("没有找到 AMAP_API_KEY，请检查 .env 文件")
         return
-    if not openai_api_key:
-        print(
-            "没有找到 OPENAI_API_KEY，请先在 .env 中配置后再运行 LLM 版本"
-        )
-        return
 
-    parser = LLMTripRequestParser()
+    try:
+        provider, parser = create_parser()
+    except ValueError as error:
+        print(f"LLM 配置错误：{error}")
+        return
     agent = LLMCyclingAgent(
         parser=parser,
         planner=CyclingPlannerAgent(AmapClient(amap_api_key)),
@@ -86,7 +105,7 @@ def main():
         return
 
     request = complete_request(draft)
-    print_understanding(request, parser.model)
+    print_understanding(request, provider, parser.model)
 
     try:
         result = agent.plan_request(request)
