@@ -1,8 +1,12 @@
 """高德 Web 服务 API 客户端：Agent 可以调用的地图工具。"""
 
+import threading
+import time
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from cycling_agent.models import BicycleRoute, Coordinate, GeoPlace, Poi, RouteStep
 
@@ -39,32 +43,123 @@ def _optional_int(value: Any) -> int | None:
 class AmapClient:
     """封装 HTTP、鉴权和高德响应解析，避免业务代码直接处理 JSON。"""
 
-    def __init__(self, api_key: str, timeout_seconds: int = 10):
+    QPS_LIMIT_INFOCODES = {"10020", "10021", "10022", "10023", "10029"}
+
+    def __init__(
+        self,
+        api_key: str,
+        timeout_seconds: int = 15,
+        max_retries: int = 2,
+        max_requests_per_second: float = 2.5,
+    ):
+        if max_requests_per_second <= 0:
+            raise ValueError("max_requests_per_second 必须大于 0")
+
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
-        self.session = requests.Session()
+        self.max_retries = max_retries
+        self.request_interval_seconds = 1 / max_requests_per_second
+        self._thread_local = threading.local()
+        self._cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._cache_lock = threading.Lock()
+        self._rate_lock = threading.Lock()
+        self._next_request_time = 0.0
+
+    def _create_session(self) -> requests.Session:
+        """为当前线程创建带连接池和自动重试的 Session。"""
+
+        retry = Retry(
+            total=self.max_retries,
+            connect=self.max_retries,
+            read=self.max_retries,
+            status=self.max_retries,
+            backoff_factor=0.6,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+            respect_retry_after_header=True,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry,
+            pool_connections=8,
+            pool_maxsize=8,
+        )
+        session = requests.Session()
+        session.mount("https://", adapter)
+        return session
+
+    @property
+    def session(self) -> requests.Session:
+        """每个并发线程使用自己的 Session，避免共享状态互相干扰。"""
+
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = self._create_session()
+            self._thread_local.session = session
+        return session
 
     def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
+        cache_key = (url, *sorted(params.items()))
+        with self._cache_lock:
+            cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         request_params = {"key": self.api_key, **params}
+        endpoint = url.rsplit("/", 1)[-1]
 
-        try:
-            response = self.session.get(
-                url,
-                params=request_params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except (requests.RequestException, ValueError) as error:
-            # 不输出完整请求 URL，避免把 API Key 写进日志。
-            raise AmapError("网络请求失败或返回内容不是合法 JSON") from error
+        for attempt in range(self.max_retries + 1):
+            self._wait_for_request_slot()
+            try:
+                response = self.session.get(
+                    url,
+                    params=request_params,
+                    timeout=self.timeout_seconds,
+                )
+                response.raise_for_status()
+            except requests.RequestException as error:
+                # 不输出完整请求 URL，避免把 API Key 写进日志。
+                raise AmapError(
+                    f"高德 {endpoint} 请求失败：{type(error).__name__}"
+                ) from error
 
-        if data.get("status") != "1":
+            try:
+                data = response.json()
+            except ValueError as error:
+                if attempt < self.max_retries:
+                    time.sleep(0.8 * (2**attempt))
+                    continue
+                raise AmapError(f"高德 {endpoint} 返回了非法 JSON") from error
+
+            if data.get("status") == "1":
+                with self._cache_lock:
+                    self._cache[cache_key] = data
+                return data
+
             info = data.get("info", "未知错误")
-            infocode = data.get("infocode", "未知错误码")
+            infocode = str(data.get("infocode", "未知错误码"))
+            if (
+                infocode in self.QPS_LIMIT_INFOCODES
+                and attempt < self.max_retries
+            ):
+                time.sleep(0.8 * (2**attempt))
+                continue
+
             raise AmapError(f"高德 API 返回失败：{info}（{infocode}）")
 
-        return data
+        raise AmapError(f"高德 {endpoint} 请求重试后仍失败")
+
+    def _wait_for_request_slot(self) -> None:
+        """统一限制并发线程的请求启动速率，避免触发高德 QPS 上限。"""
+
+        with self._rate_lock:
+            now = time.monotonic()
+            scheduled_time = max(now, self._next_request_time)
+            self._next_request_time = scheduled_time + self.request_interval_seconds
+
+        wait_seconds = scheduled_time - now
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
 
     def geocode(self, address: str, city: str) -> GeoPlace:
         data = self._get(

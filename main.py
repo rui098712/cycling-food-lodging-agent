@@ -162,6 +162,12 @@ def main():
     print_rest_stops(plan.rest_stops)
     print_lodging_options(plan.lodging_options)
 
+    if plan.warnings:
+        print("\n=== 规划警告 ===")
+        for warning in plan.warnings:
+            print(f"  - {warning}")
+        print("  其他已成功返回的结果仍然保留。")
+
 
 if __name__ == "__main__":
     main()

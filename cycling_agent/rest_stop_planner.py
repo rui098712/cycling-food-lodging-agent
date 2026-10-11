@@ -1,7 +1,9 @@
 """沿骑行道路规划周期性休息点。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+from cycling_agent.amap_client import AmapError
 from cycling_agent.models import BicycleRoute, Poi, RestStopPlan
 from cycling_agent.route_progress import (
     RouteProjection,
@@ -33,20 +35,31 @@ class RestStopPlanner:
 
     SEARCH_RADIUS_METERS = 3000
     SEARCH_ANCHOR_GAP_METERS = 5000
+    SEARCH_MAX_WORKERS = 4
 
     def __init__(self, amap):
         self.amap = amap
+        self.warnings: tuple[str, ...] = ()
 
     def plan(self, route: BicycleRoute) -> tuple[RestStopPlan, ...]:
         total_distance = route_road_distance(route.steps)
-        cycle_start = 0.0
+        # search_origin 决定下一个搜索窗口；last_stop_progress 只记录
+        # 真正找到的休息点。两者分开后，搜索失败时既不会留下
+        # 未搜索的路段，也不会把“距上一个休息点”算错。
+        search_origin = 0.0
+        last_stop_progress = 0.0
         sequence = 1
         results = []
+        warnings: list[str] = []
+        self._warnings = warnings
 
-        while total_distance - cycle_start >= self.PREFERRED_START_METERS:
-            preferred_start = cycle_start + self.PREFERRED_START_METERS
+        while (
+            total_distance - last_stop_progress > self.PREFERRED_END_METERS
+            and search_origin + self.PREFERRED_START_METERS < total_distance
+        ):
+            preferred_start = search_origin + self.PREFERRED_START_METERS
             preferred_end = min(
-                cycle_start + self.PREFERRED_END_METERS,
+                search_origin + self.PREFERRED_END_METERS,
                 total_distance,
             )
 
@@ -61,7 +74,7 @@ class RestStopPlanner:
             if selected is None and preferred_end < total_distance:
                 extended_start = preferred_end
                 extended_end = min(
-                    cycle_start + self.EXTENDED_END_METERS,
+                    search_origin + self.EXTENDED_END_METERS,
                     total_distance,
                 )
                 selected = self._select_in_window(
@@ -81,7 +94,12 @@ class RestStopPlanner:
                         search_mode="not_found",
                     )
                 )
-                cycle_start = search_end
+                if search_end >= total_distance:
+                    break
+
+                # 上一轮已覆盖 [origin+15, origin+30]。将起点只
+                # 前移 15 km，下一轮从 origin+30 开始，不留空档。
+                search_origin += self.PREFERRED_START_METERS
                 sequence += 1
                 continue
 
@@ -102,13 +120,15 @@ class RestStopPlanner:
                     route_progress_meters=route_progress,
                     distance_from_route_meters=offset,
                     distance_since_previous_meters=round(
-                        projection.route_progress_meters - cycle_start
+                        projection.route_progress_meters - last_stop_progress
                     ),
                 )
             )
-            cycle_start = projection.route_progress_meters
+            search_origin = projection.route_progress_meters
+            last_stop_progress = projection.route_progress_meters
             sequence += 1
 
+        self.warnings = tuple(warnings)
         return tuple(results)
 
     def _select_in_window(
@@ -193,14 +213,30 @@ class RestStopPlanner:
             max_road_gap_meters=self.SEARCH_ANCHOR_GAP_METERS,
         )
 
-        for _, location in search_points:
-            found = self.amap.search_nearby(
-                location,
-                types=types,
-                radius=self.SEARCH_RADIUS_METERS,
-                keywords=keywords,
-                sort_rule="distance",
-            )
+        def search_one(search_point):
+            _, location = search_point
+            try:
+                found = self.amap.search_nearby(
+                    location,
+                    types=types,
+                    radius=self.SEARCH_RADIUS_METERS,
+                    keywords=keywords,
+                    sort_rule="distance",
+                )
+                return found, None
+            except AmapError as error:
+                return (), f"休息点查询部分失败：{error}"
+
+        worker_count = min(self.SEARCH_MAX_WORKERS, len(search_points))
+        if worker_count <= 1:
+            search_results = tuple(search_one(point) for point in search_points)
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                search_results = tuple(executor.map(search_one, search_points))
+
+        for found, warning in search_results:
+            if warning and warning not in self._warnings:
+                self._warnings.append(warning)
             for poi in found:
                 key = poi.poi_id or f"{poi.name}:{poi.location}"
                 pois[key] = poi

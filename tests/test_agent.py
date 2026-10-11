@@ -1,5 +1,6 @@
 import unittest
 
+from cycling_agent.amap_client import AmapError
 from cycling_agent.agent import CyclingPlannerAgent
 from cycling_agent.models import BicycleRoute, GeoPlace, Poi, RouteStep, TripRequest
 
@@ -76,7 +77,7 @@ class AgentWorkflowTests(unittest.TestCase):
         self.assertEqual(plan.route.distance_meters, 120_000)
         self.assertEqual(plan.lunch_search_point_count, 6)
         lunch_calls = [call for call in amap.search_calls if call[3] is not None]
-        lunch_ratios = [call[3] for call in lunch_calls]
+        lunch_ratios = sorted(call[3] for call in lunch_calls)
         self.assertEqual(len(lunch_ratios), 6)
         self.assertAlmostEqual(lunch_ratios[0], 0.5)
         self.assertAlmostEqual(lunch_ratios[-1], 2 / 3)
@@ -103,6 +104,67 @@ class AgentWorkflowTests(unittest.TestCase):
         self.assertIsNone(plan.lodging_options[0].dinner)
         self.assertIsNone(plan.lodging_options[0].dinner_road_distance_meters)
         self.assertEqual(len(amap.distance_calls), 1)
+
+    def test_closed_lodging_is_filtered_out(self):
+        class ClosedLodgingAmap(FakeAmapClient):
+            def search_nearby(self, location, *, types, **kwargs):
+                if types == "100000":
+                    return (
+                        Poi(
+                            "closed",
+                            "高分客栈(暂停营业)",
+                            "测试地址",
+                            location,
+                            rating=5.0,
+                        ),
+                        Poi(
+                            "open",
+                            "正常营业宾馆",
+                            "测试地址",
+                            location,
+                            rating=4.0,
+                        ),
+                    )
+                return super().search_nearby(location, types=types, **kwargs)
+
+        plan = CyclingPlannerAgent(ClosedLodgingAmap()).plan(
+            TripRequest("甲市", "起点", "乙市", "终点", 50, 60, 200)
+        )
+
+        lodging_names = [option.lodging.poi.name for option in plan.lodging_options]
+        self.assertEqual(lodging_names, ["正常营业宾馆"])
+
+    def test_partial_lunch_failure_keeps_other_results_and_adds_warning(self):
+        class PartiallyFailingAmap(FakeAmapClient):
+            def search_nearby(
+                self,
+                location,
+                *,
+                types,
+                radius,
+                keywords=None,
+                route_ratio=None,
+                page_size=20,
+                sort_rule="weight",
+            ):
+                if types == "050000" and route_ratio == 0.5:
+                    raise AmapError("测试超时")
+                return super().search_nearby(
+                    location,
+                    types=types,
+                    radius=radius,
+                    keywords=keywords,
+                    route_ratio=route_ratio,
+                    page_size=page_size,
+                    sort_rule=sort_rule,
+                )
+
+        plan = CyclingPlannerAgent(PartiallyFailingAmap()).plan(
+            TripRequest("甲市", "起点", "乙市", "终点", 50, 60, 200)
+        )
+
+        self.assertTrue(plan.lunch_recommendations)
+        self.assertTrue(any("午饭查询部分失败" in item for item in plan.warnings))
 
 
 if __name__ == "__main__":

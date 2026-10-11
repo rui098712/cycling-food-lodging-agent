@@ -89,3 +89,4 @@ class TripPlan:
     rest_stops: tuple[RestStopPlan, ...] = field(default_factory=tuple)
     lunch_recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
     lodging_options: tuple[LodgingOption, ...] = field(default_factory=tuple)
+    warnings: tuple[str, ...] = field(default_factory=tuple)

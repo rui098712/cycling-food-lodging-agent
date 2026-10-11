@@ -93,6 +93,46 @@ class RestStopPlannerTests(unittest.TestCase):
         self.assertIsNone(results[0].poi)
         self.assertEqual(results[0].search_mode, "not_found")
 
+    def test_search_continues_at_thirty_kilometers_after_not_found(self):
+        amap = FakeRestAmap(
+            gas_pois=(make_poi("gas", "33公里加油站", 33, 0.0002),),
+        )
+
+        results = RestStopPlanner(amap).plan(self.route)
+
+        self.assertIsNone(results[0].poi)
+        self.assertEqual(results[0].search_start_meters, 15_000)
+        self.assertEqual(results[0].search_end_meters, 30_000)
+        self.assertEqual(results[1].search_start_meters, 30_000)
+        self.assertEqual(results[1].poi.name, "33公里加油站")
+        self.assertAlmostEqual(
+            results[1].distance_since_previous_meters,
+            33_000,
+            delta=100,
+        )
+
+    def test_destination_within_twenty_kilometers_is_the_next_rest(self):
+        route = BicycleRoute(
+            distance_meters=40_000,
+            duration_seconds=7_000,
+            steps=(RouteStep(40_000, ((0.0, 0.0), (0.36, 0.0))),),
+        )
+        amap = FakeRestAmap(
+            gas_pois=(
+                Poi(
+                    poi_id="gas",
+                    name="25公里加油站",
+                    address="测试地址",
+                    location=(0.225, 0.0002),
+                ),
+            ),
+        )
+
+        results = RestStopPlanner(amap).plan(route)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].poi.name, "25公里加油站")
+
 
 if __name__ == "__main__":
     unittest.main()
