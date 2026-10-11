@@ -116,6 +116,30 @@ def print_rest_stops(rest_stops):
         )
 
 
+def print_trip_plan(plan):
+    """统一输出行程，供传统入口和 LLM 入口共用。"""
+
+    print("\n=== 路线概况 ===")
+    print(f"起点：{plan.start.formatted_address}")
+    print(f"终点：{plan.end.formatted_address}")
+    print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
+    print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
+    print(
+        "午饭搜索范围：骑行道路里程的 50%～66.7%，"
+        f"动态生成 {plan.lunch_search_point_count} 个搜索点"
+    )
+
+    print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
+    print_rest_stops(plan.rest_stops)
+    print_lodging_options(plan.lodging_options)
+
+    if plan.warnings:
+        print("\n=== 规划警告 ===")
+        for warning in plan.warnings:
+            print(f"  - {warning}")
+        print("  其他已成功返回的结果仍然保留。")
+
+
 def main():
     load_dotenv()
     api_key = os.getenv("AMAP_API_KEY")
@@ -148,25 +172,7 @@ def main():
         print(f"规划失败：{error}")
         return
 
-    print("\n=== 路线概况 ===")
-    print(f"起点：{plan.start.formatted_address}")
-    print(f"终点：{plan.end.formatted_address}")
-    print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
-    print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
-    print(
-        "午饭搜索范围：骑行道路里程的 50%～66.7%，"
-        f"动态生成 {plan.lunch_search_point_count} 个搜索点"
-    )
-
-    print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
-    print_rest_stops(plan.rest_stops)
-    print_lodging_options(plan.lodging_options)
-
-    if plan.warnings:
-        print("\n=== 规划警告 ===")
-        for warning in plan.warnings:
-            print(f"  - {warning}")
-        print("  其他已成功返回的结果仍然保留。")
+    print_trip_plan(plan)
 
 
 if __name__ == "__main__":
