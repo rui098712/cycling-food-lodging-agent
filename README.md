@@ -2,9 +2,11 @@
 
 输入骑行起终点、人均午饭餐标、人均晚饭餐标和人均住宿标准，程序调用高德 Web 服务获得骑行路线，在实际骑行道路里程的 50%～66.7% 区间连续搜索午饭；每骑行 15～20 公里优先安排加油站、其次安排便利店或超市作为休息点；到达终点后优先推荐住宿，如能找到实际骑行道路距离不超过 3 公里的晚饭点，则附加到住宿方案中。
 
-现在可以用一句自然语言输入完整需求。项目默认使用本机 Ollama 中的 `qwen3:4b`，通过结构化输出把文本转换为严格的 `TripRequest`，然后交给原有高德工具链执行。不需要 OpenAI 账号或 API Key，也保留了可选的 OpenAI 后端。
+现在可以用一句自然语言输入完整需求。项目支持本机 Ollama、DeepSeek API 和 OpenAI 三种可替换后端，通过结构化输出把文本转换为严格的 `TripRequest`，然后交给原有高德工具链执行。
 
 如果用户已有准备实际跟随的 GPX 轨迹，可以将它作为唯一主路线导入。此时 Agent 不会再调用高德重新算路，而是严格按 GPX 轨迹的累计里程搜索推荐，最后导出包含推荐途经点的新 GPX。
+
+项目同时提供适配手机的 Web 版：用户可以在浏览器中输入起终点或上传 GPX，查看文字版休息点、午饭、住宿和晚饭推荐，并下载加入推荐点的 GPX。原有命令行版本仍然保留。
 
 ## 为什么这是一个 Agent 项目
 
@@ -36,18 +38,62 @@ GPX 模式中，主路线里程是 GPX 相邻轨迹点之间的累计距离，�
 │   ├── agent.py                    # Agent 编排与工具调用流程
 │   ├── amap_client.py              # 高德地图工具
 │   ├── coordinate_systems.py       # WGS-84 与 GCJ-02 坐标转换
+│   ├── deepseek_parser.py          # DeepSeek API 结构化参数提取
 │   ├── gpx_io.py                   # GPX 固定路线导入和推荐点导出
 │   ├── llm_parser.py               # Structured Outputs 参数提取
 │   ├── ollama_parser.py            # Ollama 本地模型参数提取
+│   ├── parser_factory.py           # Web/CLI 共用的模型后端选择
 │   ├── llm_agent.py                # LLM 与地图规划器的组合层
 │   ├── models.py                   # 输入、路线、POI 等数据模型
 │   ├── ranking.py                  # 可解释推荐排序
 │   ├── rest_stop_planner.py        # 周期性休息点规划
-│   └── route_progress.py           # 实际道路里程定位
+│   ├── route_progress.py           # 实际道路里程定位
+│   └── web_service.py              # 后台规划任务和 JSON 结果转换
+├── web_main.py                     # FastAPI 手机网页入口
+├── web/static/                     # 响应式 HTML/CSS/JavaScript
 └── tests/                           # 不消耗高德额度的离线测试
 ```
 
-## 运行 LLM 版本（默认本地 Ollama）
+## 运行手机 Web 版
+
+先在 VS Code 终端进入项目并启动虚拟环境：
+
+```bash
+cd "/Users/rui/Documents/ChatGPT/食宿规划agent"
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python web_main.py
+```
+
+电脑浏览器打开：
+
+```text
+http://127.0.0.1:8000
+```
+
+如果手机和 Mac 连在同一个 Wi-Fi，可在 Mac 的另一个终端查看局域网 IP：
+
+```bash
+ipconfig getifaddr en0
+```
+
+假设输出是 `192.168.1.23`，手机浏览器打开：
+
+```text
+http://192.168.1.23:8000
+```
+
+Mac 首次可能询问是否允许 Python 接受网络连接，要选择允许。关闭启动服务的终端或按 `Control+C`，手机网页就会停止访问。这种方式只适合本人测试；让任意用户从互联网访问，下一阶段需将 FastAPI 服务部署到云端并配置 HTTPS。
+
+Web 后端提供：
+
+- `POST /api/plans`：提交起终点或 GPX 和三项人均标准；
+- `GET /api/plans/{job_id}`：查询后台规划进度和文字结果；
+- `GET /api/plans/{job_id}/gpx`：下载加入推荐点的 GPX。
+
+路线规划会执行较多地图请求，因此 Web 版使用后台任务，手机页面轮询进度，不会让一个 HTTP 请求持续卡住。生成文件保存在本地 `.runtime/` 中，该目录已被 Git 忽略。
+
+## 运行 LLM 版本（Ollama / DeepSeek / OpenAI）
 
 首次使用先安装 Ollama，然后下载模型：
 
@@ -71,6 +117,16 @@ OLLAMA_HOST=http://127.0.0.1:11434
 ```
 
 `OLLAMA_MODEL` 可以在以后换成其他已下载的模型。不要把 `.env` 上传到 GitHub；仓库中的 `.env.example` 只包含占位符。
+
+如果使用 DeepSeek API，改为：
+
+```text
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=你的DeepSeek_API_Key
+DEEPSEEK_MODEL=deepseek-flash
+```
+
+DeepSeek 只在用户填写“自然语言描述”时调用；用户直接填表或仅上传 GPX 时不消耗模型额度。解析器使用结构化输出，关闭思考模式并限制最大输出，以降低延迟和费用。
 
 ```bash
 source .venv/bin/activate
@@ -160,6 +216,6 @@ python -m unittest discover -s tests -v
 
 ## 简历描述（当前版本可使用）
 
-> 独立开发骑行食宿规划 LLM Agent，接入 Ollama/Qwen 本地模型并使用 Pydantic JSON Schema 将中文自然语言转换为强类型行程参数，实现本地与 OpenAI 可替换的模型层；实现 GPX 固定轨迹导入、WGS-84/GCJ-02 坐标转换及带食宿休息点的 GPX 导出；封装高德地理编码、骑行路径和 POI 搜索工具，基于实际道路里程动态覆盖午饭区间与周期休息点，并以确定性代码验证人均消费标准、偏航和住宿到晚饭的 3 公里道路约束。
+> 独立开发骑行食宿规划 LLM Agent，接入 Ollama/Qwen 本地模型并使用 Pydantic JSON Schema 将中文自然语言转换为强类型行程参数，实现本地与 OpenAI 可替换的模型层；实现 GPX 固定轨迹导入、WGS-84/GCJ-02 坐标转换及带食宿休息点的 GPX 导出；封装高德地理编码、骑行路径和 POI 搜索工具，基于实际道路里程动态覆盖午饭区间与周期休息点，并以确定性代码验证人均消费标准、偏航和住宿到晚饭的 3 公里道路约束；使用 FastAPI 将长时间规划抽象为后台任务，实现响应式手机 Web 端、结构化文字结果与 GPX 下载。
 
 当前 LLM 负责参数提取，地图工具调用由可测试工作流编排。后续加入真正的 function calling、对话状态和评测后，再在简历中声明“LLM 自主工具选择与多轮对话”。

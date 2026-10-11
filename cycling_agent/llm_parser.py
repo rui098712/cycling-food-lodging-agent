@@ -115,9 +115,13 @@ class LLMTripRequestParser:
         self,
         client: Any | None = None,
         model: str | None = None,
+        provider_name: str = "OpenAI",
+        request_options: dict[str, Any] | None = None,
     ):
         self.client = client or OpenAI()
         self.model = model or os.getenv("OPENAI_MODEL", self.DEFAULT_MODEL)
+        self.provider_name = provider_name
+        self.request_options = request_options or {}
 
     def parse(self, user_text: str) -> TripRequestDraft:
         user_text = user_text.strip()
@@ -132,11 +136,28 @@ class LLMTripRequestParser:
                     {"role": "user", "content": user_text},
                 ],
                 text_format=TripRequestDraft,
+                **self.request_options,
             )
-        except (OpenAIError, ValidationError) as error:
-            raise LLMParsingError(f"OpenAI 请求或结构化解析失败：{error}") from error
+        except OpenAIError as error:
+            status_code = getattr(error, "status_code", None)
+            status_hints = {
+                401: "API Key 无效或已失效",
+                402: "账户余额不足",
+                429: "请求过于频繁，请稍后重试",
+            }
+            hint = status_hints.get(status_code)
+            detail = hint or str(error)
+            raise LLMParsingError(
+                f"{self.provider_name} 请求失败：{detail}"
+            ) from error
+        except ValidationError as error:
+            raise LLMParsingError(
+                f"{self.provider_name} 结构化解析失败：{error}"
+            ) from error
 
         parsed = response.output_parsed
         if parsed is None:
-            raise LLMParsingError("模型没有返回可用的结构化行程参数")
+            raise LLMParsingError(
+                f"{self.provider_name} 没有返回可用的结构化行程参数"
+            )
         return parsed

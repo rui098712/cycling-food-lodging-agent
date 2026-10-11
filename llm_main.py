@@ -12,7 +12,7 @@ from cycling_agent.llm_agent import LLMCyclingAgent
 from cycling_agent.llm_parser import LLMParsingError, LLMTripRequestParser
 from cycling_agent.gpx_io import GpxError, export_plan_gpx, import_gpx
 from cycling_agent.models import TripRequest
-from cycling_agent.ollama_parser import OllamaTripRequestParser
+from cycling_agent.parser_factory import create_parser
 from main import print_trip_plan, read_positive_number
 
 
@@ -56,21 +56,6 @@ def complete_request(draft, *, gpx_route_name: str | None = None) -> TripRequest
             values[field_name] = read_positive_number(prompt)
 
     return draft.to_trip_request(**values)
-
-
-def create_parser(provider: str | None = None):
-    """根据配置创建本地或云端解析器。"""
-
-    provider = (provider or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
-    if provider == "ollama":
-        return provider, OllamaTripRequestParser()
-    if provider == "openai":
-        if not os.getenv("OPENAI_API_KEY"):
-            raise ValueError(
-                "LLM_PROVIDER=openai 时需要在 .env 中配置 OPENAI_API_KEY"
-            )
-        return provider, LLMTripRequestParser()
-    raise ValueError("LLM_PROVIDER 只能是 ollama 或 openai")
 
 
 def print_understanding(

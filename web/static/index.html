@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#173f35" />
+    <title>骑行食宿规划</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">CYCLING ROUTE COMPANION</p>
+        <h1>骑行食宿规划</h1>
+        <p>按实际道路或 GPX 轨迹，安排休息、午饭、住宿与晚饭。</p>
+      </header>
+
+      <section class="card form-card" aria-labelledby="plan-title">
+        <div class="section-heading">
+          <span class="step">01</span>
+          <div>
+            <h2 id="plan-title">描述行程</h2>
+            <p>可以输入地点，也可以上传准备实际跟随的 GPX。</p>
+          </div>
+        </div>
+
+        <form id="plan-form">
+          <div class="mode-switch" role="group" aria-label="路线输入方式">
+            <button type="button" class="mode active" data-mode="places">起终点规划</button>
+            <button type="button" class="mode" data-mode="gpx">上传 GPX 轨迹</button>
+          </div>
+
+          <div id="places-fields">
+            <div class="field-grid">
+              <label>
+                <span>起点城市或县</span>
+                <input name="start_city" autocomplete="address-level2" placeholder="例：武威市天祝县" />
+              </label>
+              <label>
+                <span>骑行起点</span>
+                <input name="start_name" placeholder="例：达隆宾馆" />
+              </label>
+              <label>
+                <span>终点城市或县</span>
+                <input name="end_city" autocomplete="address-level2" placeholder="例：张掖市" />
+              </label>
+              <label>
+                <span>骑行终点</span>
+                <input name="end_name" placeholder="例：七彩丹霞景区" />
+              </label>
+            </div>
+          </div>
+
+          <div id="gpx-fields" class="hidden">
+            <label class="file-drop" id="file-drop">
+              <input id="gpx-file" name="gpx_file" type="file" accept=".gpx,application/gpx+xml" />
+              <span class="file-icon" aria-hidden="true">↑</span>
+              <strong id="file-title">选择手机中的 GPX 文件</strong>
+              <small id="file-detail">上限 20 MB；会严格使用该轨迹，不重新规划主路线</small>
+            </label>
+          </div>
+
+          <details class="natural-language">
+            <summary>也可以用一句话补充行程（可选）</summary>
+            <label>
+              <span>自然语言描述</span>
+              <textarea name="description" rows="3" placeholder="例：我想从广州塔骑到深圳湾公园。"></textarea>
+              <small>填写后会调用当前配置的 Ollama、DeepSeek 或 OpenAI 理解地点；下方显式输入优先。</small>
+            </label>
+          </details>
+
+          <div class="section-heading compact">
+            <span class="step">02</span>
+            <div>
+              <h2>设置人均标准</h2>
+              <p>这些是每人可接受的参考消费，不是总预算。</p>
+            </div>
+          </div>
+
+          <div class="budget-grid">
+            <label>
+              <span>午饭</span>
+              <div class="money-input"><b>¥</b><input name="lunch_standard_per_person" type="number" inputmode="decimal" min="1" step="1" placeholder="50" required /></div>
+              <small>元 / 人</small>
+            </label>
+            <label>
+              <span>晚饭</span>
+              <div class="money-input"><b>¥</b><input name="dinner_standard_per_person" type="number" inputmode="decimal" min="1" step="1" placeholder="80" required /></div>
+              <small>元 / 人</small>
+            </label>
+            <label>
+              <span>住宿</span>
+              <div class="money-input"><b>¥</b><input name="lodging_standard_per_person" type="number" inputmode="decimal" min="1" step="1" placeholder="250" required /></div>
+              <small>元 / 人</small>
+            </label>
+          </div>
+
+          <p id="form-error" class="error hidden" role="alert"></p>
+          <button class="primary" id="submit-button" type="submit">
+            <span>开始规划</span><span aria-hidden="true">→</span>
+          </button>
+        </form>
+      </section>
+
+      <section id="progress-card" class="card progress-card hidden" aria-live="polite">
+        <div class="spinner"></div>
+        <div>
+          <h2>正在规划</h2>
+          <p id="progress-stage">已提交，等待开始</p>
+          <small>长途路线需要查询多个位置，请不要关闭页面。</small>
+        </div>
+      </section>
+
+      <section id="results" class="results hidden" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">PLAN READY</p>
+            <h2>骑行方案已生成</h2>
+          </div>
+          <a id="download-gpx" class="download" href="#">下载 GPX</a>
+        </div>
+        <div id="result-content"></div>
+      </section>
+    </main>
+
+    <template id="empty-template">
+      <p class="empty">暂无符合条件的结果</p>
+    </template>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
