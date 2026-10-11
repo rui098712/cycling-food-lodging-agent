@@ -10,7 +10,7 @@ from cycling_agent.models import TripRequest
 
 
 def read_positive_number(prompt: str) -> float:
-    """读取一个大于 0 的预算。"""
+    """读取一个大于 0 的人均消费标准。"""
 
     while True:
         text = input(prompt).strip()
@@ -23,7 +23,7 @@ def read_positive_number(prompt: str) -> float:
         if value > 0:
             return value
 
-        print("预算必须大于 0")
+        print("人均消费标准必须大于 0")
 
 
 def print_recommendations(title, recommendations, price_unit="元/人"):
@@ -59,9 +59,9 @@ def print_lodging_options(options):
     for index, option in enumerate(options, start=1):
         lodging = option.lodging.poi
         lodging_cost = (
-            f"高德参考消费 {lodging.cost:.0f} 元"
+            f"高德参考人均消费 {lodging.cost:.0f} 元/人"
             if lodging.cost is not None
-            else "住宿价格暂无"
+            else "人均住宿价格暂无"
         )
 
         print(f"  {index}. {lodging.name}（推荐分 {option.lodging.score:.1f}）")
@@ -153,9 +153,15 @@ def main():
         start_name=input("请输入骑行起点：").strip(),
         end_city=input("请输入终点城市：").strip(),
         end_name=input("请输入骑行终点：").strip(),
-        lunch_budget=read_positive_number("请输入午饭餐标（元/人）："),
-        dinner_budget=read_positive_number("请输入晚饭餐标（元/人）："),
-        lodging_budget=read_positive_number("请输入住宿预算（元/晚）："),
+        lunch_standard_per_person=read_positive_number(
+            "请输入人均午饭餐标（元/人）："
+        ),
+        dinner_standard_per_person=read_positive_number(
+            "请输入人均晚饭餐标（元/人）："
+        ),
+        lodging_standard_per_person=read_positive_number(
+            "请输入人均住宿标准（元/人）："
+        ),
     )
 
     if not all(

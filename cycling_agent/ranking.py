@@ -5,11 +5,11 @@ from cycling_agent.models import Poi, Recommendation
 
 def rank_pois(
     pois: tuple[Poi, ...],
-    budget: float,
+    spending_standard_per_person: float,
     *,
     limit: int = 5,
 ) -> tuple[Recommendation, ...]:
-    """综合预算、评分和距离排序；缺失字段不会被伪造。"""
+    """综合人均消费标准、评分和距离排序；缺失字段不会被伪造。"""
 
     recommendations = []
 
@@ -24,15 +24,21 @@ def rank_pois(
             reasons.append(f"高德评分 {poi.rating:.1f}")
 
         if poi.cost is None:
-            budget_score = 10.0
+            standard_score = 10.0
             reasons.append("价格需到店确认")
-        elif poi.cost <= budget:
-            budget_score = 40.0
-            reasons.append(f"参考消费 {poi.cost:.0f} 元，在预算内")
+        elif poi.cost <= spending_standard_per_person:
+            standard_score = 40.0
+            reasons.append(
+                f"参考人均消费 {poi.cost:.0f} 元，符合人均标准"
+            )
         else:
-            over_ratio = (poi.cost - budget) / budget
-            budget_score = max(0.0, 40 * (1 - over_ratio))
-            reasons.append(f"参考消费 {poi.cost:.0f} 元，超过预算")
+            over_ratio = (
+                poi.cost - spending_standard_per_person
+            ) / spending_standard_per_person
+            standard_score = max(0.0, 40 * (1 - over_ratio))
+            reasons.append(
+                f"参考人均消费 {poi.cost:.0f} 元，超过人均标准"
+            )
 
         if poi.distance_meters is None:
             distance_score = 5.0
@@ -43,7 +49,7 @@ def rank_pois(
         recommendations.append(
             Recommendation(
                 poi=poi,
-                score=round(rating_score + budget_score + distance_score, 1),
+                score=round(rating_score + standard_score + distance_score, 1),
                 reasons=tuple(reasons),
             )
         )

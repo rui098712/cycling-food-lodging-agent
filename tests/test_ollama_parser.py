@@ -23,9 +23,9 @@ def valid_content():
         start_name="达隆宾馆",
         end_city="张掖市",
         end_name="七彩丹霞景区",
-        lunch_budget=50,
-        dinner_budget=80,
-        lodging_budget=250,
+        lunch_standard_per_person=50,
+        dinner_standard_per_person=80,
+        lodging_standard_per_person=250,
     ).model_dump_json()
 
 
@@ -37,7 +37,7 @@ class OllamaParserTests(unittest.TestCase):
         draft = parser.parse("从达隆宾馆骑到七彩丹霞")
 
         self.assertEqual(draft.start_name, "达隆宾馆")
-        self.assertEqual(draft.lodging_budget, 250)
+        self.assertEqual(draft.lodging_standard_per_person, 250)
         arguments = client.last_arguments
         self.assertEqual(arguments["model"], "test-model")
         self.assertEqual(

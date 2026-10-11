@@ -90,7 +90,7 @@ class CyclingPlannerAgent:
         )
         lodging_recommendations = rank_pois(
             lodging_candidates,
-            request.lodging_budget,
+            request.lodging_standard_per_person,
             limit=self.LODGING_CANDIDATE_LIMIT,
         )
 
@@ -100,7 +100,7 @@ class CyclingPlannerAgent:
 
         lodging_options, lodging_warnings = self._build_lodging_options(
             lodging_recommendations,
-            request.dinner_budget,
+            request.dinner_standard_per_person,
         )
         for warning in lodging_warnings:
             self._append_warning(warnings, warning)
@@ -113,7 +113,8 @@ class CyclingPlannerAgent:
             lunch_search_point_count=len(search_points),
             rest_stops=rest_stops,
             lunch_recommendations=rank_pois(
-                tuple(lunch_candidates.values()), request.lunch_budget
+                tuple(lunch_candidates.values()),
+                request.lunch_standard_per_person,
             ),
             lodging_options=lodging_options,
             warnings=tuple(warnings),
@@ -122,7 +123,7 @@ class CyclingPlannerAgent:
     def _build_lodging_options(
         self,
         lodgings: tuple[Recommendation, ...],
-        dinner_budget: float,
+        dinner_standard_per_person: float,
     ) -> tuple[tuple[LodgingOption, ...], tuple[str, ...]]:
         """住宿优先；若能验证到 3 公里内晚饭，则附加到住宿方案。"""
 
@@ -152,7 +153,7 @@ class CyclingPlannerAgent:
             )
             dinners = rank_pois(
                 dinner_candidates,
-                dinner_budget,
+                dinner_standard_per_person,
                 limit=self.DINNER_CANDIDATE_LIMIT,
             )
 

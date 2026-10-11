@@ -15,8 +15,8 @@ TRIP_EXTRACTION_INSTRUCTIONS = """
 规则：
 1. 分别提取起点行政区、起点名称、终点行政区、终点名称。
 2. 县、自治县或区可以与市名一起保留在 city 字段，不要擅自改成另一个城市。
-3. 午饭和晚饭预算按“元/人”提取，住宿预算按“元/晚”提取。
-4. 信息没有明确出现时返回 null，禁止自行补全预算或地名。
+3. 分别提取人均午饭餐标、人均晚饭餐标和人均住宿标准，单位都是人民币元/人。
+4. 信息没有明确出现时返回 null，禁止自行补全消费标准或地名。
 5. 你只负责理解输入；真实道路里程、POI 和推荐由后续地图工具计算。
 """.strip()
 
@@ -50,16 +50,16 @@ class TripRequestDraft(BaseModel):
     end_name: str | None = Field(
         description="用户明确给出的骑行终点地点名称；缺失时为 null"
     )
-    lunch_budget: float | None = Field(
-        description="每人午饭预算，单位为人民币元；缺失时为 null",
+    lunch_standard_per_person: float | None = Field(
+        description="人均午饭餐标，单位为人民币元/人；缺失时为 null",
         gt=0,
     )
-    dinner_budget: float | None = Field(
-        description="每人晚饭预算，单位为人民币元；缺失时为 null",
+    dinner_standard_per_person: float | None = Field(
+        description="人均晚饭餐标，单位为人民币元/人；缺失时为 null",
         gt=0,
     )
-    lodging_budget: float | None = Field(
-        description="每晚住宿预算，单位为人民币元；缺失时为 null",
+    lodging_standard_per_person: float | None = Field(
+        description="人均住宿消费标准，单位为人民币元/人；缺失时为 null",
         gt=0,
     )
 
@@ -79,9 +79,9 @@ class TripRequestDraft(BaseModel):
                 "start_name",
                 "end_city",
                 "end_name",
-                "lunch_budget",
-                "dinner_budget",
-                "lodging_budget",
+                "lunch_standard_per_person",
+                "dinner_standard_per_person",
+                "lodging_standard_per_person",
             )
             if getattr(self, name) is None
         )

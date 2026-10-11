@@ -75,9 +75,9 @@ class TripRequest:
     start_name: str
     end_city: str
     end_name: str
-    lunch_budget: float
-    dinner_budget: float
-    lodging_budget: float
+    lunch_standard_per_person: float
+    dinner_standard_per_person: float
+    lodging_standard_per_person: float
 
 
 @dataclass(frozen=True)

@@ -49,9 +49,9 @@ def complete_draft():
         start_name="广州塔",
         end_city="深圳市",
         end_name="深圳湾公园",
-        lunch_budget=50,
-        dinner_budget=80,
-        lodging_budget=250,
+        lunch_standard_per_person=50,
+        dinner_standard_per_person=80,
+        lodging_standard_per_person=250,
     )
 
 
@@ -79,21 +79,27 @@ class LLMParserTests(unittest.TestCase):
             start_name="广州塔",
             end_city="深圳市",
             end_name="深圳湾公园",
-            lunch_budget=None,
-            dinner_budget=80,
-            lodging_budget=None,
+            lunch_standard_per_person=None,
+            dinner_standard_per_person=80,
+            lodging_standard_per_person=None,
         )
 
         self.assertEqual(
             draft.missing_fields(),
-            ("lunch_budget", "lodging_budget"),
+            (
+                "lunch_standard_per_person",
+                "lodging_standard_per_person",
+            ),
         )
         with self.assertRaises(MissingTripFieldsError):
             draft.to_trip_request()
 
-        request = draft.to_trip_request(lunch_budget=50, lodging_budget=250)
-        self.assertEqual(request.lunch_budget, 50)
-        self.assertEqual(request.lodging_budget, 250)
+        request = draft.to_trip_request(
+            lunch_standard_per_person=50,
+            lodging_standard_per_person=250,
+        )
+        self.assertEqual(request.lunch_standard_per_person, 50)
+        self.assertEqual(request.lodging_standard_per_person, 250)
 
     def test_llm_agent_passes_structured_request_to_existing_planner(self):
         draft = complete_draft()

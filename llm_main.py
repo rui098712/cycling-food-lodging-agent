@@ -20,10 +20,10 @@ TEXT_FIELD_PROMPTS = {
     "end_name": "请补充骑行终点：",
 }
 
-BUDGET_FIELD_PROMPTS = {
-    "lunch_budget": "请补充午饭餐标（元/人）：",
-    "dinner_budget": "请补充晚饭餐标（元/人）：",
-    "lodging_budget": "请补充住宿预算（元/晚）：",
+STANDARD_FIELD_PROMPTS = {
+    "lunch_standard_per_person": "请补充人均午饭餐标（元/人）：",
+    "dinner_standard_per_person": "请补充人均晚饭餐标（元/人）：",
+    "lodging_standard_per_person": "请补充人均住宿标准（元/人）：",
 }
 
 
@@ -37,7 +37,7 @@ def complete_request(draft) -> TripRequest:
             if value:
                 values[field_name] = value
 
-    for field_name, prompt in BUDGET_FIELD_PROMPTS.items():
+    for field_name, prompt in STANDARD_FIELD_PROMPTS.items():
         if values[field_name] is None:
             values[field_name] = read_positive_number(prompt)
 
@@ -70,8 +70,10 @@ def print_understanding(
     print(f"起点：{request.start_city} {request.start_name}")
     print(f"终点：{request.end_city} {request.end_name}")
     print(
-        f"午饭/晚饭/住宿预算：{request.lunch_budget:g} / "
-        f"{request.dinner_budget:g} / {request.lodging_budget:g} 元"
+        "人均午饭/晚饭/住宿标准："
+        f"{request.lunch_standard_per_person:g} / "
+        f"{request.dinner_standard_per_person:g} / "
+        f"{request.lodging_standard_per_person:g} 元/人"
     )
     print("接下来由高德工具计算真实道路和 POI，LLM 不参与距离计算。")
 
@@ -95,7 +97,10 @@ def main():
     )
 
     print("=== 骑行食宿规划 LLM Agent ===")
-    print("示例：我想从广州市广州塔骑到深圳市深圳湾公园，午饭50，晚饭80，住宿250。")
+    print(
+        "示例：我想从广州市广州塔骑到深圳市深圳湾公园，"
+        "人均午饭50，人均晚饭80，人均住宿250。"
+    )
     user_text = input("请用一句话描述行程：").strip()
 
     try:
