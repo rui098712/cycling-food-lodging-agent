@@ -1,157 +1,98 @@
+"""骑行食宿规划 Agent 的命令行入口。"""
+
 import os
 
-import requests
 from dotenv import load_dotenv
 
-
-load_dotenv()
-
-AMAP_API_KEY = os.getenv("AMAP_API_KEY")
-
-if not AMAP_API_KEY:
-    raise RuntimeError("没有找到 AMAP_API_KEY，请检查 .env 文件")
+from cycling_agent.agent import CyclingPlannerAgent
+from cycling_agent.amap_client import AmapClient, AmapError
+from cycling_agent.models import TripRequest
 
 
-def geocode(address, city):
-    """将地点名称转换为经纬度。"""
+def read_positive_number(prompt: str) -> float:
+    """读取一个大于 0 的预算。"""
 
-    url = "https://restapi.amap.com/v3/geocode/geo"
-
-    params = {
-        "key": AMAP_API_KEY,
-        "address": address,
-        "city": city,
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    if data.get("status") != "1":
-        raise RuntimeError(f"地理编码失败：{data.get('info')}")
-
-    geocodes = data.get("geocodes", [])
-
-    if not geocodes:
-        return None
-
-    first_result = geocodes[0]
-
-    return {
-        "address": first_result["formatted_address"],
-        "location": first_result["location"],
-    }
-
-def extract_route_points(steps):
-    """从所有路线分段中提取坐标。"""
-
-    route_points = []
-
-    for step in steps:
-        polyline = step.get("polyline", "")
-
-        if not polyline:
+    while True:
+        text = input(prompt).strip()
+        try:
+            value = float(text)
+        except ValueError:
+            print("请输入数字，例如 40 或 150.5")
             continue
 
-        for coordinate_string in polyline.split(";"):
-            longitude_text, latitude_text = coordinate_string.split(",")
+        if value > 0:
+            return value
 
-            point = (
-                float(longitude_text),
-                float(latitude_text),
-            )
+        print("预算必须大于 0")
 
-            # 避免相邻分段重复保存连接点
-            if not route_points or point != route_points[-1]:
-                route_points.append(point)
 
-    return route_points
+def print_recommendations(title, recommendations, price_unit="元/人"):
+    print(f"\n{title}")
 
-def get_bicycle_route(origin, destination):
-    """根据起终点经纬度查询骑行路线。"""
+    if not recommendations:
+        print("  暂无符合条件的结果")
+        return
 
-    url = "https://restapi.amap.com/v5/direction/bicycling"
+    for index, recommendation in enumerate(recommendations, start=1):
+        poi = recommendation.poi
+        cost_text = f"{poi.cost:.0f} {price_unit}" if poi.cost is not None else "价格暂无"
+        rating_text = f"评分 {poi.rating:.1f}" if poi.rating is not None else "评分暂无"
+        distance_text = (
+            f"距搜索点 {poi.distance_meters} 米"
+            if poi.distance_meters is not None
+            else "距离暂无"
+        )
 
-    params = {
-        "key": AMAP_API_KEY,
-        "origin": origin,
-        "destination": destination,
-        "show_fields": "polyline",
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    if data.get("status") != "1":
-        raise RuntimeError(f"骑行路线查询失败：{data.get('info')}")
-
-    paths = data.get("route", {}).get("paths", [])
-
-    if not paths:
-        return None
-
-    first_path = paths[0]
-
-    steps = first_path.get("steps", [])
-    route_points = extract_route_points(steps)
-
-    distance_meters = int(first_path["distance"])
-    duration_seconds = int(first_path["duration"])
-
-    return {
-        "distance_meters": distance_meters,
-        "duration_seconds": duration_seconds,
-        "route_points": route_points,
-    }
+        print(f"  {index}. {poi.name}（推荐分 {recommendation.score:.1f}）")
+        print(f"     {cost_text}，{rating_text}，{distance_text}")
+        print(f"     地址：{poi.address or '暂无'}")
+        print(f"     理由：{'；'.join(recommendation.reasons)}")
 
 
 def main():
-    start_city = input("请输入起点城市：").strip()
-    start_name = input("请输入骑行起点：").strip()
+    load_dotenv()
+    api_key = os.getenv("AMAP_API_KEY")
 
-    end_city = input("请输入终点城市：").strip()
-    end_name = input("请输入骑行终点：").strip()
+    if not api_key:
+        raise RuntimeError("没有找到 AMAP_API_KEY，请检查 .env 文件")
 
-    if not start_city or not start_name or not end_city or not end_name:
+    print("=== 骑行食宿规划 Agent ===")
+    request = TripRequest(
+        start_city=input("请输入起点城市：").strip(),
+        start_name=input("请输入骑行起点：").strip(),
+        end_city=input("请输入终点城市：").strip(),
+        end_name=input("请输入骑行终点：").strip(),
+        lunch_budget=read_positive_number("请输入午饭餐标（元/人）："),
+        dinner_budget=read_positive_number("请输入晚饭餐标（元/人）："),
+        lodging_budget=read_positive_number("请输入住宿预算（元/晚）："),
+    )
+
+    if not all(
+        [request.start_city, request.start_name, request.end_city, request.end_name]
+    ):
         print("城市、起点和终点不能为空")
         return
 
-    start = geocode(start_name, start_city)
-    end = geocode(end_name, end_city)
+    agent = CyclingPlannerAgent(AmapClient(api_key))
 
-    if start is None:
-        print("没有找到起点")
+    try:
+        plan = agent.plan(request)
+    except AmapError as error:
+        print(f"规划失败：{error}")
         return
 
-    if end is None:
-        print("没有找到终点")
-        return
+    print("\n=== 路线概况 ===")
+    print(f"起点：{plan.start.formatted_address}")
+    print(f"终点：{plan.end.formatted_address}")
+    print(f"骑行道路里程：{plan.route.distance_meters / 1000:.2f} 公里")
+    print(f"预计时间：{plan.route.duration_seconds / 3600:.2f} 小时")
+    print("午饭搜索范围：骑行道路里程的 50%～66.7%")
 
-    print()
-    print("起点识别为：", start["address"])
-    print("起点坐标：", start["location"])
-    print("终点识别为：", end["address"])
-    print("终点坐标：", end["location"])
-
-    route = get_bicycle_route(
-        start["location"],
-        end["location"],
+    print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
+    print_recommendations("=== 终点晚饭推荐 ===", plan.dinner_recommendations)
+    print_recommendations(
+        "=== 终点住宿推荐 ===", plan.lodging_recommendations, price_unit="元（高德参考消费）"
     )
-
-    if route is None:
-        print("没有找到可用的骑行路线")
-        return
-
-    distance_km = route["distance_meters"] / 1000
-    duration_hours = route["duration_seconds"] / 3600
-
-    print()
-    print(f"骑行距离：{distance_km:.2f} 公里")
-    print(f"预计时间：{duration_hours:.2f} 小时")
-    print(f"路线坐标点数量：{len(route['route_points'])}")
 
 
 if __name__ == "__main__":
