@@ -12,7 +12,7 @@ if not AMAP_API_KEY:
     raise RuntimeError("没有找到 AMAP_API_KEY，请检查 .env 文件")
 
 
-def geocode(address):
+def geocode(address, city):
     """将地点名称转换为经纬度。"""
 
     url = "https://restapi.amap.com/v3/geocode/geo"
@@ -20,6 +20,7 @@ def geocode(address):
     params = {
         "key": AMAP_API_KEY,
         "address": address,
+        "city": city,
     }
 
     response = requests.get(url, params=params, timeout=10)
@@ -42,6 +43,30 @@ def geocode(address):
         "location": first_result["location"],
     }
 
+def extract_route_points(steps):
+    """从所有路线分段中提取坐标。"""
+
+    route_points = []
+
+    for step in steps:
+        polyline = step.get("polyline", "")
+
+        if not polyline:
+            continue
+
+        for coordinate_string in polyline.split(";"):
+            longitude_text, latitude_text = coordinate_string.split(",")
+
+            point = (
+                float(longitude_text),
+                float(latitude_text),
+            )
+
+            # 避免相邻分段重复保存连接点
+            if not route_points or point != route_points[-1]:
+                route_points.append(point)
+
+    return route_points
 
 def get_bicycle_route(origin, destination):
     """根据起终点经纬度查询骑行路线。"""
@@ -52,7 +77,7 @@ def get_bicycle_route(origin, destination):
         "key": AMAP_API_KEY,
         "origin": origin,
         "destination": destination,
-        "show_fields": "cost",
+        "show_fields": "polyline",
     }
 
     response = requests.get(url, params=params, timeout=10)
@@ -70,25 +95,32 @@ def get_bicycle_route(origin, destination):
 
     first_path = paths[0]
 
+    steps = first_path.get("steps", [])
+    route_points = extract_route_points(steps)
+
     distance_meters = int(first_path["distance"])
     duration_seconds = int(first_path["duration"])
 
     return {
         "distance_meters": distance_meters,
         "duration_seconds": duration_seconds,
+        "route_points": route_points,
     }
 
 
 def main():
+    start_city = input("请输入起点城市：").strip()
     start_name = input("请输入骑行起点：").strip()
+
+    end_city = input("请输入终点城市：").strip()
     end_name = input("请输入骑行终点：").strip()
 
-    if not start_name or not end_name:
-        print("起点和终点不能为空")
+    if not start_city or not start_name or not end_city or not end_name:
+        print("城市、起点和终点不能为空")
         return
 
-    start = geocode(start_name)
-    end = geocode(end_name)
+    start = geocode(start_name, start_city)
+    end = geocode(end_name, end_city)
 
     if start is None:
         print("没有找到起点")
@@ -119,6 +151,7 @@ def main():
     print()
     print(f"骑行距离：{distance_km:.2f} 公里")
     print(f"预计时间：{duration_hours:.2f} 小时")
+    print(f"路线坐标点数量：{len(route['route_points'])}")
 
 
 if __name__ == "__main__":
