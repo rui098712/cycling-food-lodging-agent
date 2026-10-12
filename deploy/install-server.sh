@@ -31,6 +31,7 @@ fi
 
 install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0700 \
     "${PROJECT_DIR}/.runtime"
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${PROJECT_DIR}/.runtime"
 chown "${SERVICE_USER}:${SERVICE_USER}" "${PROJECT_DIR}/.env"
 chmod 0600 "${PROJECT_DIR}/.env"
 
