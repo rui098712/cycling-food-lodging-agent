@@ -76,6 +76,10 @@ def _poi_json(poi: Poi) -> dict[str, Any]:
         "cost": poi.cost,
         "distance_meters": poi.distance_meters,
         "route_ratio": poi.route_ratio,
+        "city_name": poi.city_name,
+        "district_name": poi.district_name,
+        "township_name": poi.township_name,
+        "lunch_area_kind": poi.lunch_area_kind,
     }
 
 
@@ -144,6 +148,21 @@ def trip_plan_to_json(plan: TripPlan) -> dict[str, Any]:
             }
         )
 
+    def ordered_unique(values: list[str]) -> list[str]:
+        return list(dict.fromkeys(value for value in values if value))
+
+    lunch_search_areas = {
+        "cities": ordered_unique(
+            [area.city_name for area in plan.lunch_areas]
+        ),
+        "counties_and_districts": ordered_unique(
+            [area.district_name for area in plan.lunch_areas]
+        ),
+        "townships_and_streets": ordered_unique(
+            [area.township_name for area in plan.lunch_areas]
+        ),
+    }
+
     return {
         "route": {
             "source": plan.route.source,
@@ -159,6 +178,7 @@ def trip_plan_to_json(plan: TripPlan) -> dict[str, Any]:
             "point_count": plan.route.point_count,
             "lunch_search_point_count": plan.lunch_search_point_count,
         },
+        "lunch_search_areas": lunch_search_areas,
         "lunch_recommendations": [
             _recommendation_json(item) for item in plan.lunch_recommendations
         ],

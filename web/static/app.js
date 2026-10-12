@@ -124,8 +124,27 @@ function renderRoute(route) {
   section.append(addresses);
 }
 
-function renderLunch(items) {
+function appendAreaRow(container, label, names) {
+  if (!names?.length) return;
+  const row = element("div", "area-row");
+  row.append(element("strong", "", label));
+  const tags = element("div", "area-tags");
+  names.forEach((name) => tags.append(element("span", "tag", name)));
+  row.append(tags);
+  container.append(row);
+}
+
+function renderLunch(items, areas) {
   const section = resultSection("午饭推荐");
+  const areaSummary = element("div", "lunch-area-summary");
+  areaSummary.append(element("p", "area-title", "50%～66.7% 道路里程内经过的区域"));
+  appendAreaRow(areaSummary, "市", areas?.cities);
+  appendAreaRow(areaSummary, "县 / 区", areas?.counties_and_districts);
+  appendAreaRow(areaSummary, "乡镇 / 街道", areas?.townships_and_streets);
+  if (areaSummary.children.length === 1) {
+    areaSummary.append(element("p", "meta", "暂未识别到行政区名称"));
+  }
+  section.append(areaSummary);
   if (!items.length) return appendEmpty(section);
   items.forEach((recommendation, index) => {
     const item = element("article", "item");
@@ -225,7 +244,10 @@ function renderAgent(agent) {
 function renderResult(payload) {
   resultContent.replaceChildren();
   renderRoute(payload.result.route);
-  renderLunch(payload.result.lunch_recommendations);
+  renderLunch(
+    payload.result.lunch_recommendations,
+    payload.result.lunch_search_areas,
+  );
   renderRestStops(payload.result.rest_stops);
   renderLodging(payload.result.lodging_options);
   renderAgent(payload.result.agent);

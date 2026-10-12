@@ -8,7 +8,14 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from cycling_agent.models import BicycleRoute, Coordinate, GeoPlace, Poi, RouteStep
+from cycling_agent.models import (
+    AdministrativeArea,
+    BicycleRoute,
+    Coordinate,
+    GeoPlace,
+    Poi,
+    RouteStep,
+)
 
 
 class AmapError(RuntimeError):
@@ -38,6 +45,12 @@ def _optional_int(value: Any) -> int | None:
         return int(float(value)) if value not in (None, "", []) else None
     except (TypeError, ValueError):
         return None
+
+
+def _optional_text(value: Any) -> str:
+    """高德的空字段可能是空字符串或空数组，统一成空字符串。"""
+
+    return value.strip() if isinstance(value, str) else ""
 
 
 class AmapClient:
@@ -176,6 +189,33 @@ class AmapClient:
             location=_parse_coordinate(result["location"]),
         )
 
+    def reverse_geocode(self, location: Coordinate) -> AdministrativeArea:
+        """把路线坐标解析为市、县区和乡镇/街道名称。"""
+
+        data = self._get(
+            "https://restapi.amap.com/v3/geocode/regeo",
+            {
+                "location": self.format_coordinate(location),
+                "extensions": "base",
+            },
+        )
+        component = data.get("regeocode", {}).get("addressComponent", {})
+        if not isinstance(component, dict):
+            raise AmapError("逆地理编码没有返回行政区信息")
+
+        province_name = _optional_text(component.get("province"))
+        city_name = _optional_text(component.get("city"))
+        # 直辖市的 city 字段可能为空，用省级字段补为市名。
+        if not city_name and province_name.endswith("市"):
+            city_name = province_name
+
+        return AdministrativeArea(
+            province_name=province_name,
+            city_name=city_name,
+            district_name=_optional_text(component.get("district")),
+            township_name=_optional_text(component.get("township")),
+        )
+
     def bicycle_route(
         self,
         origin: Coordinate,
@@ -278,6 +318,8 @@ class AmapClient:
                     cost=_optional_float(business.get("cost")),
                     distance_meters=_optional_int(item.get("distance")),
                     route_ratio=route_ratio,
+                    city_name=_optional_text(item.get("cityname")),
+                    district_name=_optional_text(item.get("adname")),
                 )
             )
 

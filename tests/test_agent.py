@@ -2,7 +2,14 @@ import unittest
 
 from cycling_agent.amap_client import AmapError
 from cycling_agent.agent import CyclingPlannerAgent
-from cycling_agent.models import BicycleRoute, GeoPlace, Poi, RouteStep, TripRequest
+from cycling_agent.models import (
+    AdministrativeArea,
+    BicycleRoute,
+    GeoPlace,
+    Poi,
+    RouteStep,
+    TripRequest,
+)
 
 
 class FakeAmapClient:
@@ -31,6 +38,14 @@ class FakeAmapClient:
     def bicycle_distance(self, origin, destination):
         self.distance_calls.append((origin, destination))
         return self.pair_distance
+
+    def reverse_geocode(self, location):
+        return AdministrativeArea(
+            province_name="测试省",
+            city_name="测试市",
+            district_name="测试县",
+            township_name="测试镇",
+        )
 
     def search_nearby(
         self,
@@ -83,6 +98,10 @@ class AgentWorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(lunch_ratios[-1], 2 / 3)
         self.assertTrue(any(call[1] == "010100" for call in amap.search_calls))
         self.assertTrue(plan.lunch_recommendations)
+        self.assertEqual(plan.lunch_areas[0].city_name, "测试市")
+        self.assertEqual(plan.lunch_areas[0].district_name, "测试县")
+        self.assertEqual(plan.lunch_areas[0].township_name, "测试镇")
+        self.assertIn("镇区", "".join(plan.lunch_recommendations[0].reasons))
         self.assertTrue(plan.rest_stops)
         self.assertTrue(any(stop.poi is not None for stop in plan.rest_stops))
         self.assertTrue(plan.lodging_options)

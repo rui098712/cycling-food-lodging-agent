@@ -13,6 +13,16 @@ class GeoPlace:
 
 
 @dataclass(frozen=True)
+class AdministrativeArea:
+    """一个路线采样点所属的省、市、县区和乡镇街道。"""
+
+    province_name: str = ""
+    city_name: str = ""
+    district_name: str = ""
+    township_name: str = ""
+
+
+@dataclass(frozen=True)
 class RouteStep:
     """一段可定位的骑行道路或 GPX 轨迹。"""
 
@@ -45,6 +55,10 @@ class Poi:
     cost: float | None = None
     distance_meters: int | None = None
     route_ratio: float | None = None
+    city_name: str = ""
+    district_name: str = ""
+    township_name: str = ""
+    lunch_area_kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,6 +105,7 @@ class TripPlan:
     end: GeoPlace
     route: BicycleRoute
     lunch_search_point_count: int
+    lunch_areas: tuple[AdministrativeArea, ...] = field(default_factory=tuple)
     rest_stops: tuple[RestStopPlan, ...] = field(default_factory=tuple)
     lunch_recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
     lodging_options: tuple[LodgingOption, ...] = field(default_factory=tuple)

@@ -46,6 +46,56 @@ class AmapClientTests(unittest.TestCase):
         self.assertEqual(adapter.max_retries.total, 3)
         self.assertIn(503, adapter.max_retries.status_forcelist)
 
+    def test_reverse_geocode_parses_administrative_area(self):
+        client = AmapClient("test-key", max_requests_per_second=1000)
+        client._thread_local.session = FakeSession(
+            responses=(
+                FakeResponse(
+                    {
+                        "status": "1",
+                        "regeocode": {
+                            "addressComponent": {
+                                "province": "甘肃省",
+                                "city": "张掖市",
+                                "district": "临泽县",
+                                "township": "倪家营镇",
+                            }
+                        },
+                    }
+                ),
+            )
+        )
+
+        area = client.reverse_geocode((100.1, 38.9))
+
+        self.assertEqual(area.city_name, "张掖市")
+        self.assertEqual(area.district_name, "临泽县")
+        self.assertEqual(area.township_name, "倪家营镇")
+
+    def test_reverse_geocode_uses_municipality_as_city(self):
+        client = AmapClient("test-key", max_requests_per_second=1000)
+        client._thread_local.session = FakeSession(
+            responses=(
+                FakeResponse(
+                    {
+                        "status": "1",
+                        "regeocode": {
+                            "addressComponent": {
+                                "province": "北京市",
+                                "city": [],
+                                "district": "海淀区",
+                                "township": "燕园街道",
+                            }
+                        },
+                    }
+                ),
+            )
+        )
+
+        area = client.reverse_geocode((116.31, 39.99))
+
+        self.assertEqual(area.city_name, "北京市")
+
     @patch("cycling_agent.amap_client.time.sleep")
     def test_qps_limit_is_retried(self, mocked_sleep):
         client = AmapClient(

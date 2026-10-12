@@ -1,9 +1,11 @@
 """Agent 编排层：根据目标选择工具，并把工具结果组织成行程方案。"""
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 from cycling_agent.amap_client import AmapClient, AmapError
 from cycling_agent.models import (
+    AdministrativeArea,
     BicycleRoute,
     GeoPlace,
     LodgingOption,
@@ -79,6 +81,7 @@ class CyclingPlannerAgent:
 
         # 3. 按路线长度动态增加搜索中心，连续覆盖 1/2～2/3 区间。
         lunch_candidates: dict[str, Poi] = {}
+        lunch_areas: list[AdministrativeArea] = []
         search_points = lunch_search_points(
             route.steps,
             max_road_gap_meters=self.LUNCH_MAX_ROAD_GAP_METERS,
@@ -86,6 +89,13 @@ class CyclingPlannerAgent:
 
         def search_lunch(search_point):
             ratio, location = search_point
+            warnings_for_point = []
+            area = None
+            try:
+                area = self.amap.reverse_geocode(location)
+            except AmapError as error:
+                warnings_for_point.append(f"午饭区域识别部分失败：{error}")
+
             try:
                 pois = self.amap.search_nearby(
                     location,
@@ -94,9 +104,19 @@ class CyclingPlannerAgent:
                     keywords="餐厅|饭店|小吃",
                     route_ratio=ratio,
                 )
-                return pois, None
             except AmapError as error:
-                return (), f"午饭查询部分失败：{error}"
+                pois = ()
+                warnings_for_point.append(f"午饭查询部分失败：{error}")
+
+            if area is None and pois:
+                area = AdministrativeArea(
+                    city_name=pois[0].city_name,
+                    district_name=pois[0].district_name,
+                )
+            if area is not None:
+                pois = tuple(self._tag_lunch_area(poi, area) for poi in pois)
+
+            return pois, area, tuple(warnings_for_point)
 
         worker_count = min(self.SEARCH_MAX_WORKERS, len(search_points))
         if worker_count <= 1:
@@ -105,9 +125,21 @@ class CyclingPlannerAgent:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 lunch_results = tuple(executor.map(search_lunch, search_points))
 
-        for pois, warning in lunch_results:
-            self._append_warning(warnings, warning)
+        seen_areas = set()
+        for pois, area, result_warnings in lunch_results:
+            for warning in result_warnings:
+                self._append_warning(warnings, warning)
             self._merge_unique(lunch_candidates, pois)
+            if area is None:
+                continue
+            area_key = (
+                area.city_name,
+                area.district_name,
+                area.township_name,
+            )
+            if any(area_key) and area_key not in seen_areas:
+                seen_areas.add(area_key)
+                lunch_areas.append(area)
 
         # 4. 住宿是必要条件，因此先查询和排序终点附近的住宿。
         try:
@@ -146,6 +178,7 @@ class CyclingPlannerAgent:
             end=end,
             route=route,
             lunch_search_point_count=len(search_points),
+            lunch_areas=tuple(lunch_areas),
             rest_stops=rest_stops,
             lunch_recommendations=rank_pois(
                 tuple(lunch_candidates.values()),
@@ -153,6 +186,31 @@ class CyclingPlannerAgent:
             ),
             lodging_options=lodging_options,
             warnings=tuple(warnings),
+        )
+
+    @staticmethod
+    def _tag_lunch_area(poi: Poi, area: AdministrativeArea) -> Poi:
+        """把搜索点所属聚落附到午饭候选，供可解释排序使用。"""
+
+        city_name = poi.city_name or area.city_name
+        district_name = poi.district_name or area.district_name
+        township_name = area.township_name
+
+        if township_name.endswith("镇"):
+            area_kind = "town"
+        elif township_name.endswith("街道"):
+            area_kind = "urban"
+        elif not township_name and district_name.endswith("区"):
+            area_kind = "urban"
+        else:
+            area_kind = ""
+
+        return replace(
+            poi,
+            city_name=city_name,
+            district_name=district_name,
+            township_name=township_name,
+            lunch_area_kind=area_kind,
         )
 
     def _build_lodging_options(

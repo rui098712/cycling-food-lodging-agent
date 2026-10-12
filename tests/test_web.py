@@ -11,7 +11,13 @@ from cycling_agent.conversation_agent import (
     ModelReply,
     ModelToolCall,
 )
-from cycling_agent.models import BicycleRoute, GeoPlace, RouteStep, TripPlan
+from cycling_agent.models import (
+    AdministrativeArea,
+    BicycleRoute,
+    GeoPlace,
+    RouteStep,
+    TripPlan,
+)
 from cycling_agent.web_service import PlanningJobManager
 from web_main import create_app
 
@@ -36,6 +42,14 @@ class FakePlanner:
             end=GeoPlace("测试终点", last),
             route=route,
             lunch_search_point_count=3,
+            lunch_areas=(
+                AdministrativeArea(
+                    province_name="测试省",
+                    city_name="测试市",
+                    district_name="测试县",
+                    township_name="测试镇",
+                ),
+            ),
         )
 
     def plan(self, request):
@@ -96,6 +110,16 @@ class WebApiTests(unittest.TestCase):
                 self.assertEqual(payload["status"], "completed")
                 self.assertEqual(payload["result"]["route"]["distance_meters"], 10_000)
                 self.assertEqual(payload["result"]["lunch_recommendations"], [])
+                self.assertEqual(
+                    payload["result"]["lunch_search_areas"]["cities"],
+                    ["测试市"],
+                )
+                self.assertEqual(
+                    payload["result"]["lunch_search_areas"][
+                        "townships_and_streets"
+                    ],
+                    ["测试镇"],
+                )
 
                 download = client.get(payload["gpx_download_url"])
                 self.assertEqual(download.status_code, 200)

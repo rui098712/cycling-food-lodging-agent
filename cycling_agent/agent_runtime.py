@@ -113,6 +113,7 @@ class PlanTripTool:
         route = context.plan.route
         return (
             f"获得 {route.distance_meters / 1000:.2f} 公里路线，"
+            f"识别 {len(context.plan.lunch_areas)} 个午饭沿线区域，"
             f"{len(context.plan.lunch_recommendations)} 个午饭候选，"
             f"{sum(stop.poi is not None for stop in context.plan.rest_stops)} 个休息点，"
             f"{len(context.plan.lodging_options)} 个住宿方案"

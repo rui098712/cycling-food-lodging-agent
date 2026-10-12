@@ -49,6 +49,24 @@ def print_recommendations(title, recommendations, price_unit="元/人"):
         print(f"     理由：{'；'.join(recommendation.reasons)}")
 
 
+def print_lunch_areas(areas):
+    """输出午饭道路里程窗口内识别出的行政区名称。"""
+
+    print("\n=== 午饭可选范围经过区域 ===")
+    if not areas:
+        print("  暂未识别到镇、县区或市名称")
+        return
+
+    groups = (
+        ("市", [area.city_name for area in areas]),
+        ("县/区", [area.district_name for area in areas]),
+        ("乡镇/街道", [area.township_name for area in areas]),
+    )
+    for label, values in groups:
+        names = list(dict.fromkeys(value for value in values if value))
+        print(f"  {label}：{'、'.join(names) if names else '暂无'}")
+
+
 def print_lodging_options(options):
     print("\n=== 住宿优先推荐 ===")
 
@@ -138,6 +156,7 @@ def print_trip_plan(plan):
         f"动态生成 {plan.lunch_search_point_count} 个搜索点"
     )
 
+    print_lunch_areas(plan.lunch_areas)
     print_recommendations("=== 午饭推荐 ===", plan.lunch_recommendations)
     print_rest_stops(plan.rest_stops)
     print_lodging_options(plan.lodging_options)
