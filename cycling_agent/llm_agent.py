@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from cycling_agent.agent import CyclingPlannerAgent
+from cycling_agent.agent_runtime import (
+    AgentTraceEvent,
+    PlanValidationReport,
+    PlanningAgentRuntime,
+)
 from cycling_agent.llm_parser import TripRequestDraft
 from cycling_agent.models import BicycleRoute, TripPlan, TripRequest
 
@@ -14,6 +19,8 @@ class LLMPlanningResult:
 
     request: TripRequest
     plan: TripPlan
+    validation: PlanValidationReport
+    trace: tuple[AgentTraceEvent, ...]
 
 
 class TripRequestParser(Protocol):
@@ -38,6 +45,7 @@ class LLMCyclingAgent:
     ):
         self.parser = parser
         self.planner = planner
+        self.runtime = PlanningAgentRuntime(planner)
 
     def understand(self, user_text: str) -> TripRequestDraft:
         return self.parser.parse(user_text)
@@ -47,13 +55,12 @@ class LLMCyclingAgent:
         request: TripRequest,
         route: BicycleRoute | None = None,
     ) -> LLMPlanningResult:
+        run = self.runtime.run(request, route=route)
         return LLMPlanningResult(
             request=request,
-            plan=(
-                self.planner.plan_with_route(request, route)
-                if route is not None
-                else self.planner.plan(request)
-            ),
+            plan=run.plan,
+            validation=run.validation,
+            trace=run.trace,
         )
 
     def plan(self, user_text: str) -> LLMPlanningResult:

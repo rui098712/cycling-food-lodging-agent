@@ -2,13 +2,20 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Lock
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
+from cycling_agent.conversation_agent import (
+    ConversationManager,
+    create_conversation_manager,
+)
 from cycling_agent.gpx_io import MAX_GPX_FILE_BYTES
+from cycling_agent.llm_parser import LLMParsingError
 from cycling_agent.web_service import PlanSubmission, PlanningJobManager
 
 
@@ -17,8 +24,25 @@ STATIC_DIR = PROJECT_DIR / "web" / "static"
 load_dotenv(PROJECT_DIR / ".env")
 
 
-def create_app(manager: PlanningJobManager | None = None) -> FastAPI:
+class ChatMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+
+
+def create_app(
+    manager: PlanningJobManager | None = None,
+    conversation_manager: ConversationManager | None = None,
+) -> FastAPI:
     job_manager = manager or PlanningJobManager(PROJECT_DIR / ".runtime" / "plans")
+    chat_manager = conversation_manager
+    chat_manager_lock = Lock()
+
+    def get_chat_manager() -> ConversationManager:
+        nonlocal chat_manager
+        if chat_manager is None:
+            with chat_manager_lock:
+                if chat_manager is None:
+                    chat_manager = create_conversation_manager(job_manager.submit)
+        return chat_manager
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -40,6 +64,50 @@ def create_app(manager: PlanningJobManager | None = None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
+
+    @app.post("/api/chat/sessions", status_code=status.HTTP_201_CREATED)
+    def create_chat_session():
+        try:
+            session = get_chat_manager().create()
+        except ValueError as error:
+            raise HTTPException(503, f"Agent 模型未配置：{error}") from error
+        return {
+            "session_id": session.session_id,
+            "reply": (
+                "你好，请告诉我骑行起点、终点，以及人均午饭、"
+                "晚饭和住宿标准。可以分多次说。"
+            ),
+        }
+
+    @app.post("/api/chat/sessions/{session_id}/messages")
+    def send_chat_message(session_id: str, body: ChatMessageRequest):
+        try:
+            result = get_chat_manager().send(session_id, body.message)
+        except KeyError as error:
+            raise HTTPException(404, "对话已失效，请新建会话") from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        except LLMParsingError as error:
+            raise HTTPException(502, str(error)) from error
+
+        return {
+            "session_id": result.session_id,
+            "reply": result.reply,
+            "status": result.status,
+            "fields": result.fields,
+            "missing_fields": list(result.missing_fields),
+            "job_id": result.job_id,
+            "status_url": result.status_url,
+            "tool_trace": [
+                {
+                    "step": event.step,
+                    "tool_name": event.tool_name,
+                    "status": event.status,
+                    "summary": event.summary,
+                }
+                for event in result.trace
+            ],
+        }
 
     @app.post("/api/plans", status_code=status.HTTP_202_ACCEPTED)
     async def create_plan(

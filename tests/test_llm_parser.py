@@ -8,7 +8,7 @@ from cycling_agent.llm_parser import (
     MissingTripFieldsError,
     TripRequestDraft,
 )
-from cycling_agent.models import TripRequest
+from cycling_agent.models import BicycleRoute, GeoPlace, RouteStep, TripPlan, TripRequest
 from llm_main import complete_request
 
 
@@ -41,7 +41,17 @@ class FakePlanner:
 
     def plan(self, request):
         self.received_request = request
-        return "fake-plan"
+        route = BicycleRoute(
+            distance_meters=1000,
+            duration_seconds=300,
+            steps=(RouteStep(1000, ((0.0, 0.0), (0.01, 0.01))),),
+        )
+        return TripPlan(
+            start=GeoPlace("测试起点", (0.0, 0.0)),
+            end=GeoPlace("测试终点", (0.01, 0.01)),
+            route=route,
+            lunch_search_point_count=1,
+        )
 
 
 def complete_draft():
@@ -109,7 +119,9 @@ class LLMParserTests(unittest.TestCase):
 
         result = agent.plan("测试行程")
 
-        self.assertEqual(result.plan, "fake-plan")
+        self.assertEqual(result.plan.route.distance_meters, 1000)
+        self.assertTrue(result.validation.passed)
+        self.assertTrue(result.trace)
         self.assertIsInstance(result.request, TripRequest)
         self.assertEqual(planner.received_request.end_name, "深圳湾公园")
 

@@ -1,24 +1,40 @@
-# 骑行食宿规划 LLM Agent
+# 骑行食宿规划对话式 Agent
 
 输入骑行起终点、人均午饭餐标、人均晚饭餐标和人均住宿标准，程序调用高德 Web 服务获得骑行路线，在实际骑行道路里程的 50%～66.7% 区间连续搜索午饭；每骑行 15～20 公里优先安排加油站、其次安排便利店或超市作为休息点；到达终点后优先推荐住宿，如能找到实际骑行道路距离不超过 3 公里的晚饭点，则附加到住宿方案中。
 
-现在可以用一句自然语言输入完整需求。项目支持本机 Ollama、DeepSeek API 和 OpenAI 三种可替换后端，通过结构化输出把文本转换为严格的 `TripRequest`，然后交给原有高德工具链执行。
+用户可以用一句话输入完整需求，也可以在多轮对话中分步补充或修改行程。项目支持本机 Ollama、DeepSeek API 和 OpenAI 三种可替换后端。对话模型通过 Function Calling 选择“更新行程状态”或“提交骑行规划”工具，地图路线和距离约束仍由高德与确定性代码执行。
 
 如果用户已有准备实际跟随的 GPX 轨迹，可以将它作为唯一主路线导入。此时 Agent 不会再调用高德重新算路，而是严格按 GPX 轨迹的累计里程搜索推荐，最后导出包含推荐途经点的新 GPX。
 
 项目同时提供适配手机的 Web 版：用户可以在浏览器中输入起终点或上传 GPX，查看文字版休息点、午饭、住宿和晚饭推荐，并下载加入推荐点的 GPX。原有命令行版本仍然保留。
 
-## 为什么这是一个 Agent 项目
+## 系统架构
 
-当前版本是一个“LLM + 确定性工具”的混合 Agent：
+当前版本是一个“多轮 LLM + Function Calling + 确定性工具”的混合 Agent：
 
-1. LLM 理解用户的中文描述，提取起终点和三项人均消费标准。
-2. Pydantic 结构约束模型输出，信息缺失时保留为 `None`，程序再向用户询问，而不是让模型猜测。
-3. 地图工具执行地理编码、骑行路线和周边 POI 搜索。
-4. 确定性代码计算道路累计里程、距离约束、去重和排序。
-5. 输出路线概况和带理由的推荐，同时保留警告和中间结果便于调试。
+1. 程序保存完整会话历史和当前结构化行程状态，因此能补问缺失字段、理解后续修改。
+2. LLM 通过 Function Calling 自主选择 `update_trip_request` 或 `submit_trip_plan`，而不是只返回一段文本。
+3. Pydantic 验证所有模型生成的工具参数；工具白名单、最大步数和幂等提交防止越权、死循环和重复任务。
+4. 后台 Agent 以 `Plan → Act → Observe` 循环调用规划、约束校验和 GPX 导出工具。
+5. 地图工具执行地理编码、骑行路线和周边 POI 搜索；普通代码复核道路里程、午饭区间、休息点偏离和晚饭 3 公里约束。
+6. 网页显示可审计的决策/工具/观察轨迹和校验报告，但不暴露模型隐藏思维过程。
 
 这种分工非常重要：LLM 擅长理解语言，但不负责猜测地图数据。地图距离和人均消费约束仍由普通代码执行，更准确、更便宜也更容易测试。
+
+### Agent 数据流
+
+```text
+用户多轮消息
+    ↓
+LLM 选择 Function Call
+    ├─ update_trip_request → 校验并更新会话状态 → 补问缺失信息
+    └─ submit_trip_plan  → 提交幂等后台任务
+                              ↓
+                  Plan → Act → Observe 循环
+                  规划 → 约束复核 → GPX 导出
+                              ↓
+                  文字结果 + 执行轨迹 + GPX
+```
 
 ## 实际道路里程如何计算
 
@@ -36,7 +52,9 @@ GPX 模式中，主路线里程是 GPX 相邻轨迹点之间的累计距离，�
 ├── llm_main.py                     # 自然语言 LLM 入口
 ├── cycling_agent/
 │   ├── agent.py                    # Agent 编排与工具调用流程
+│   ├── agent_runtime.py            # Plan-Act-Observe 循环、工具注册和约束校验
 │   ├── amap_client.py              # 高德地图工具
+│   ├── conversation_agent.py       # 多轮会话、Function Calling 和会话状态
 │   ├── coordinate_systems.py       # WGS-84 与 GCJ-02 坐标转换
 │   ├── deepseek_parser.py          # DeepSeek API 结构化参数提取
 │   ├── gpx_io.py                   # GPX 固定路线导入和推荐点导出
@@ -51,6 +69,7 @@ GPX 模式中，主路线里程是 GPX 相邻轨迹点之间的累计距离，�
 │   └── web_service.py              # 后台规划任务和 JSON 结果转换
 ├── web_main.py                     # FastAPI 手机网页入口
 ├── web/static/                     # 响应式 HTML/CSS/JavaScript
+├── evals/                          # 真实模型多轮评测数据与脚本
 └── tests/                           # 不消耗高德额度的离线测试
 ```
 
@@ -87,11 +106,15 @@ Mac 首次可能询问是否允许 Python 接受网络连接，要选择允许�
 
 Web 后端提供：
 
+- `POST /api/chat/sessions`：创建内存中的多轮 Agent 会话；
+- `POST /api/chat/sessions/{session_id}/messages`：发送消息并执行 Function Calling 循环；
 - `POST /api/plans`：提交起终点或 GPX 和三项人均标准；
 - `GET /api/plans/{job_id}`：查询后台规划进度和文字结果；
 - `GET /api/plans/{job_id}/gpx`：下载加入推荐点的 GPX。
 
 路线规划会执行较多地图请求，因此 Web 版使用后台任务，手机页面轮询进度，不会让一个 HTTP 请求持续卡住。生成文件保存在本地 `.runtime/` 中，该目录已被 Git 忽略。
+
+对话会话目前保存在 FastAPI 进程内存中，服务重启后会失效。这适合 Demo；正式部署可将会话状态替换为 Redis 或数据库存储。
 
 ## 运行 LLM 版本（Ollama / DeepSeek / OpenAI）
 
@@ -198,6 +221,20 @@ OPENAI_MODEL=gpt-6-astra
 python -m unittest discover -s tests -v
 ```
 
+## Agent 评测
+
+45 项离线测试覆盖路线、POI、GPX、工具白名单、多轮记忆、幂等提交、最大步数、Ollama 适配和 Web API，不消耗 LLM 或高德额度。
+
+使用真实 DeepSeek 评测集检查字段准确率和任务完成率：
+
+```bash
+python -m evals.run_agent_evals --provider deepseek
+```
+
+该评测不调用高德，但会产生少量模型 API 用量。当前内置 3 个用例，覆盖一次输入、多轮补齐和后续修改。
+
+DeepSeek 的 Chat Completions 是无状态的，因此本项目由服务端保存并重传会话历史；Function Calling 按官方的 assistant `tool_calls` → 本地执行 → `tool` 结果 协议实现：[Multi-round Conversation](https://api-docs.deepseek.com/guides/multi_round_chat/)、[Tool Calls](https://api-docs.deepseek.com/guides/tool_calls/)。
+
 `.env` 和 `*.gpx` 已被 `.gitignore` 忽略，密钥和可能包含个人行程的轨迹都不应上传到 GitHub。
 
 ## 排序规则与数据限制
@@ -213,9 +250,3 @@ python -m unittest discover -s tests -v
 - 如果 15～30 公里内仍未找到休息点，下一轮会紧接从 30 公里处继续搜索，不再跳过 30～45 公里路段；后续找到时，输出的间隔仍按上一个真实休息点计算。
 - 休息点查询每隔最多 5 公里在路线创建搜索中心，使用 3 公里查询半径召回候选，再把候选投影回原路线，以路线累计里程和距路线距离做最终过滤。
 - 同一组独立 POI 搜索最多使用 4 个并发工作线程，同时在客户端统一限制请求启动频率；高德客户端会对临时网络错误、非法 JSON 和 QPS 限流自动退避重试，并缓存同次运行中的相同请求。非关键 POI 请求失败时，Agent 保留已获得的结果并输出警告，不会让整份规划直接丢失。
-
-## 简历描述（当前版本可使用）
-
-> 独立开发骑行食宿规划 LLM Agent，接入 Ollama/Qwen 本地模型并使用 Pydantic JSON Schema 将中文自然语言转换为强类型行程参数，实现本地与 OpenAI 可替换的模型层；实现 GPX 固定轨迹导入、WGS-84/GCJ-02 坐标转换及带食宿休息点的 GPX 导出；封装高德地理编码、骑行路径和 POI 搜索工具，基于实际道路里程动态覆盖午饭区间与周期休息点，并以确定性代码验证人均消费标准、偏航和住宿到晚饭的 3 公里道路约束；使用 FastAPI 将长时间规划抽象为后台任务，实现响应式手机 Web 端、结构化文字结果与 GPX 下载。
-
-当前 LLM 负责参数提取，地图工具调用由可测试工作流编排。后续加入真正的 function calling、对话状态和评测后，再在简历中声明“LLM 自主工具选择与多轮对话”。

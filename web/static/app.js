@@ -13,8 +13,14 @@ const progressStage = document.querySelector("#progress-stage");
 const results = document.querySelector("#results");
 const resultContent = document.querySelector("#result-content");
 const downloadGpx = document.querySelector("#download-gpx");
+const chatForm = document.querySelector("#chat-form");
+const chatInput = document.querySelector("#chat-input");
+const chatSend = document.querySelector("#chat-send");
+const chatLog = document.querySelector("#chat-log");
+const chatError = document.querySelector("#chat-error");
 let routeMode = "places";
 let pollTimer = null;
+let chatSessionId = null;
 
 modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -177,16 +183,61 @@ function renderWarnings(warnings) {
   section.append(list);
 }
 
+const agentToolNames = {
+  plan_trip: "生成骑行方案",
+  validate_plan: "校验关键约束",
+  export_gpx: "导出 GPX",
+  finish: "完成任务",
+};
+
+const validationNames = {
+  route_integrity: "路线完整性",
+  lunch_route_window: "午饭区间",
+  rest_stop_constraints: "休息点偏离",
+  dinner_road_distance: "晚饭道路距离",
+};
+
+function renderAgent(agent) {
+  if (!agent) return;
+  const section = resultSection("Agent 执行与校验");
+  section.append(element("p", "meta", "Plan → Act → Observe：工具执行真实查询，确定性规则复核距离约束。"));
+  const checks = element("div", "agent-checks");
+  agent.validation.checks.forEach((check) => {
+    const item = element("div", `agent-check ${check.passed ? "passed" : "failed"}`);
+    item.append(
+      element("strong", "", `${check.passed ? "✓" : "!"} ${validationNames[check.name] || check.name}`),
+      element("span", "", check.detail),
+    );
+    checks.append(item);
+  });
+  section.append(checks);
+  const details = element("details", "agent-trace");
+  details.append(element("summary", "", `查看 ${agent.trace.length} 条 Agent 执行记录`));
+  const list = element("ol", "trace-list");
+  agent.trace.forEach((event) => {
+    const typeName = event.event_type === "decision" ? "决策" : event.event_type === "observation" ? "观察" : "完成";
+    list.append(element("li", "", `${typeName} · ${agentToolNames[event.name] || event.name}：${event.summary}`));
+  });
+  details.append(list);
+  section.append(details);
+}
+
 function renderResult(payload) {
   resultContent.replaceChildren();
   renderRoute(payload.result.route);
   renderLunch(payload.result.lunch_recommendations);
   renderRestStops(payload.result.rest_stops);
   renderLodging(payload.result.lodging_options);
+  renderAgent(payload.result.agent);
   renderWarnings(payload.result.warnings);
   downloadGpx.href = payload.gpx_download_url;
   results.classList.remove("hidden");
   results.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setPlanningControls(disabled) {
+  submitButton.disabled = disabled;
+  chatSend.disabled = disabled;
 }
 
 async function pollJob(statusUrl) {
@@ -198,7 +249,7 @@ async function pollJob(statusUrl) {
     if (data.status === "completed") {
       clearTimeout(pollTimer);
       progressCard.classList.add("hidden");
-      submitButton.disabled = false;
+      setPlanningControls(false);
       renderResult(data);
       return;
     }
@@ -209,7 +260,7 @@ async function pollJob(statusUrl) {
   } catch (error) {
     clearTimeout(pollTimer);
     progressCard.classList.add("hidden");
-    submitButton.disabled = false;
+    setPlanningControls(false);
     showError(error.message);
     form.scrollIntoView({ behavior: "smooth", block: "center" });
   }
@@ -233,7 +284,7 @@ form.addEventListener("submit", async (event) => {
     if (!fileInput.files[0]) return showError("请先选择一个 GPX 文件。");
   }
 
-  submitButton.disabled = true;
+  setPlanningControls(true);
   progressCard.classList.remove("hidden");
   progressStage.textContent = "正在提交规划任务";
   progressCard.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -245,7 +296,64 @@ form.addEventListener("submit", async (event) => {
     pollJob(body.status_url);
   } catch (error) {
     progressCard.classList.add("hidden");
-    submitButton.disabled = false;
+    setPlanningControls(false);
     showError(error.message);
   }
+});
+
+function appendChatMessage(role, text) {
+  const message = element("div", `chat-message ${role}`, text);
+  chatLog.append(message);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+async function ensureChatSession() {
+  if (chatSessionId) return;
+  const response = await fetch("/api/chat/sessions", { method: "POST" });
+  const body = await response.json();
+  if (!response.ok) throw new Error(getErrorMessage(body, "无法创建 Agent 会话"));
+  chatSessionId = body.session_id;
+  appendChatMessage("assistant", body.reply);
+}
+
+chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = chatInput.value.trim();
+  if (!message) return;
+  chatError.classList.add("hidden");
+  chatInput.value = "";
+  appendChatMessage("user", message);
+  chatSend.disabled = true;
+  try {
+    await ensureChatSession();
+    const response = await fetch(`/api/chat/sessions/${chatSessionId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(getErrorMessage(body, "Agent 回复失败"));
+    (body.tool_trace || []).forEach((item) => {
+      chatLog.append(element("div", "tool-event", `工具 · ${item.summary}`));
+    });
+    appendChatMessage("assistant", body.reply);
+    if (body.status_url) {
+      setPlanningControls(true);
+      progressCard.classList.remove("hidden");
+      progressStage.textContent = "Agent 已提交规划任务";
+      pollJob(body.status_url);
+    } else {
+      chatSend.disabled = false;
+      chatInput.focus();
+    }
+  } catch (error) {
+    chatSend.disabled = false;
+    chatError.textContent = error.message;
+    chatError.classList.remove("hidden");
+  }
+});
+
+ensureChatSession().catch((error) => {
+  chatError.textContent = error.message;
+  chatError.classList.remove("hidden");
 });

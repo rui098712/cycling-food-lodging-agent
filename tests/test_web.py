@@ -5,6 +5,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from cycling_agent.conversation_agent import (
+    ConversationAgent,
+    ConversationManager,
+    ModelReply,
+    ModelToolCall,
+)
 from cycling_agent.models import BicycleRoute, GeoPlace, RouteStep, TripPlan
 from cycling_agent.web_service import PlanningJobManager
 from web_main import create_app
@@ -145,6 +151,67 @@ class WebApiTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(response.status_code, 400)
+
+    def test_chat_endpoint_runs_function_calls_and_returns_job_url(self):
+        class ChatModel:
+            model = "test-chat"
+
+            def __init__(self):
+                self.replies = [
+                    ModelReply(
+                        None,
+                        (
+                            ModelToolCall(
+                                "update",
+                                "update_trip_request",
+                                {
+                                    "start_city": "甲市",
+                                    "start_name": "起点",
+                                    "end_city": "乙市",
+                                    "end_name": "终点",
+                                    "lunch_standard_per_person": 50,
+                                    "dinner_standard_per_person": 80,
+                                    "lodging_standard_per_person": 250,
+                                },
+                            ),
+                        ),
+                    ),
+                    ModelReply(
+                        None,
+                        (ModelToolCall("submit", "submit_trip_plan", {}),),
+                    ),
+                    ModelReply("已开始规划。"),
+                ]
+
+            def complete(self, messages, tools):
+                return self.replies.pop(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            planning_manager = PlanningJobManager(
+                directory,
+                planner_factory=FakePlanner,
+                max_workers=1,
+            )
+            conversation_manager = ConversationManager(
+                ConversationAgent(ChatModel(), planning_manager.submit)
+            )
+            with TestClient(
+                create_app(planning_manager, conversation_manager)
+            ) as client:
+                created = client.post("/api/chat/sessions")
+                self.assertEqual(created.status_code, 201)
+                session_id = created.json()["session_id"]
+
+                response = client.post(
+                    f"/api/chat/sessions/{session_id}/messages",
+                    json={"message": "帮我规划这次骑行"},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["status"], "submitted")
+                self.assertTrue(payload["status_url"].startswith("/api/plans/"))
+                self.assertEqual(len(payload["tool_trace"]), 2)
 
 
 if __name__ == "__main__":

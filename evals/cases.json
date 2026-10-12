@@ -1,0 +1,52 @@
+[
+  {
+    "name": "一次说完跨城行程",
+    "turns": [
+      "我想从武威市天祝县达隆宾馆骑到张掖市七彩丹霞景区，人均午饭50，晚饭80，住宿250。"
+    ],
+    "expected_fields": {
+      "start_city": "武威市天祝县",
+      "start_name": "达隆宾馆",
+      "end_city": "张掖市",
+      "end_name": "七彩丹霞景区",
+      "lunch_standard_per_person": 50,
+      "dinner_standard_per_person": 80,
+      "lodging_standard_per_person": 250
+    },
+    "expected_submitted": true
+  },
+  {
+    "name": "分两轮补齐人均标准",
+    "turns": [
+      "从广州市广州塔骑到深圳市深圳湾公园。",
+      "午饭每人40，晚饭每人70，住宿每人200。"
+    ],
+    "expected_fields": {
+      "start_city": "广州市",
+      "start_name": "广州塔",
+      "end_city": "深圳市",
+      "end_name": "深圳湾公园",
+      "lunch_standard_per_person": 40,
+      "dinner_standard_per_person": 70,
+      "lodging_standard_per_person": 200
+    },
+    "expected_submitted": true
+  },
+  {
+    "name": "第二轮修改终点",
+    "turns": [
+      "起点是广州市广州塔，终点是深圳市深圳北站，午饭50晚饭80住宿300。",
+      "终点改成深圳市深圳湾公园。"
+    ],
+    "expected_fields": {
+      "start_city": "广州市",
+      "start_name": "广州塔",
+      "end_city": "深圳市",
+      "end_name": "深圳湾公园",
+      "lunch_standard_per_person": 50,
+      "dinner_standard_per_person": 80,
+      "lodging_standard_per_person": 300
+    },
+    "expected_submitted": true
+  }
+]

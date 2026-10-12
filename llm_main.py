@@ -81,6 +81,27 @@ def print_understanding(
         print("接下来由高德工具计算真实道路和 POI，LLM 不参与距离计算。")
 
 
+def print_agent_trace(result) -> None:
+    """展示可审计的决策、工具调用与观察，不展示隐藏思维过程。"""
+
+    print("\n=== Agent 执行轨迹 ===")
+    for event in result.trace:
+        labels = {
+            "decision": "决策",
+            "observation": "观察",
+            "complete": "完成",
+        }
+        print(
+            f"  [{event.step}] {labels.get(event.event_type, event.event_type)} "
+            f"{event.name}：{event.summary}"
+        )
+
+    print("\n=== Agent 约束校验 ===")
+    for check in result.validation.checks:
+        mark = "通过" if check.passed else "未通过"
+        print(f"  - [{mark}] {check.name}：{check.detail}")
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="骑行食宿规划 LLM Agent",
@@ -163,6 +184,7 @@ def main():
         return
 
     print_trip_plan(result.plan)
+    print_agent_trace(result)
 
     output_path = args.output_gpx
     if imported_gpx is not None and output_path is None:

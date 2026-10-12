@@ -10,8 +10,13 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from cycling_agent.agent import CyclingPlannerAgent
+from cycling_agent.agent_runtime import (
+    AgentTraceEvent,
+    PlanValidationReport,
+    PlanningAgentRuntime,
+)
 from cycling_agent.amap_client import AmapClient
-from cycling_agent.gpx_io import export_plan_gpx, import_gpx
+from cycling_agent.gpx_io import import_gpx
 from cycling_agent.models import Poi, Recommendation, TripPlan, TripRequest
 from cycling_agent.parser_factory import create_parser
 
@@ -50,6 +55,7 @@ class PlanJob:
     result: dict[str, Any] | None = None
     error: str | None = None
     output_gpx: Path | None = None
+    agent_trace: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _clean_text(value: str | None) -> str | None:
@@ -78,6 +84,30 @@ def _recommendation_json(item: Recommendation) -> dict[str, Any]:
         "poi": _poi_json(item.poi),
         "score": round(item.score, 1),
         "reasons": list(item.reasons),
+    }
+
+
+def _agent_event_json(event: AgentTraceEvent) -> dict[str, Any]:
+    return {
+        "step": event.step,
+        "event_type": event.event_type,
+        "name": event.name,
+        "status": event.status,
+        "summary": event.summary,
+    }
+
+
+def _validation_json(report: PlanValidationReport) -> dict[str, Any]:
+    return {
+        "passed": report.passed,
+        "checks": [
+            {
+                "name": check.name,
+                "passed": check.passed,
+                "detail": check.detail,
+            }
+            for check in report.checks
+        ],
     }
 
 
@@ -187,6 +217,7 @@ class PlanningJobManager:
             "status": job.status,
             "stage": job.stage,
             "created_at": job.created_at,
+            "agent_trace": list(job.agent_trace),
         }
         if job.result is not None:
             payload["result"] = job.result
@@ -200,6 +231,14 @@ class PlanningJobManager:
             job = self._jobs[job_id]
             for key, value in changes.items():
                 setattr(job, key, value)
+
+    def _record_agent_event(self, job_id: str, event: AgentTraceEvent) -> None:
+        """同步保存轨迹，让网页轮询时能看到 Agent 正在做什么。"""
+
+        with self._lock:
+            job = self._jobs[job_id]
+            job.agent_trace.append(_agent_event_json(event))
+            job.stage = event.summary
 
     def _build_request(
         self,
@@ -277,18 +316,12 @@ class PlanningJobManager:
                 ),
             )
 
-            planner = self.planner_factory()
-            plan = (
-                planner.plan_with_route(request, imported_gpx.route)
-                if imported_gpx
-                else planner.plan(request)
-            )
-
-            self._update(job_id, stage="正在生成带推荐点的 GPX")
             output_path = job_directory / "cycling-plan.gpx"
-            export_plan_gpx(
-                plan,
-                output_path,
+            runtime = PlanningAgentRuntime(self.planner_factory())
+            run = runtime.run(
+                request,
+                route=imported_gpx.route if imported_gpx else None,
+                output_path=output_path,
                 route_name=(
                     f"{imported_gpx.name}（含食宿休息点）"
                     if imported_gpx
@@ -298,13 +331,20 @@ class PlanningJobManager:
                     imported_gpx.segments_wgs84 if imported_gpx else None
                 ),
                 source_path=source_path,
+                on_event=lambda event: self._record_agent_event(job_id, event),
             )
+            result = trip_plan_to_json(run.plan)
+            result["agent"] = {
+                "architecture": "plan-act-observe",
+                "validation": _validation_json(run.validation),
+                "trace": [_agent_event_json(event) for event in run.trace],
+            }
             self._update(
                 job_id,
                 status="completed",
                 stage="规划完成",
-                result=trip_plan_to_json(plan),
-                output_gpx=output_path,
+                result=result,
+                output_gpx=run.exported_path,
             )
         except Exception as error:  # Worker failures must become a visible job state.
             self._update(

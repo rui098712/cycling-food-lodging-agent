@@ -15,6 +15,25 @@
         <p>按实际道路或 GPX 轨迹，安排休息、午饭、住宿与晚饭。</p>
       </header>
 
+      <section class="card chat-card" aria-labelledby="chat-title">
+        <div class="section-heading">
+          <span class="step">AI</span>
+          <div>
+            <h2 id="chat-title">多轮对话 Agent</h2>
+            <p>可以分多次说出行程，Agent 会记住上下文、补问缺失信息，再自主调用规划工具。</p>
+          </div>
+        </div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" maxlength="1000" autocomplete="off" placeholder="例：我想从天祝县达隆宾馆骑到张掖七彩丹霞" />
+          <button id="chat-send" type="submit">发送</button>
+        </form>
+        <p id="chat-error" class="error hidden" role="alert"></p>
+        <p class="chat-note">Function Calling 只能调用白名单工具；地图距离仍由高德和规则代码计算。</p>
+      </section>
+
+      <div class="or-divider"><span>或者使用表单 / GPX</span></div>
+
       <section class="card form-card" aria-labelledby="plan-title">
         <div class="section-heading">
           <span class="step">01</span>
