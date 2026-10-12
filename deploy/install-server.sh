@@ -53,6 +53,17 @@ systemctl enable --now cycling-agent
 systemctl enable nginx
 systemctl restart nginx
 
+for attempt in $(seq 1 15); do
+    if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then
+        break
+    fi
+    if [[ "${attempt}" -eq 15 ]]; then
+        echo "cycling-agent 启动超时，请运行 systemctl status cycling-agent 查看状态。" >&2
+        exit 1
+    fi
+    sleep 1
+done
+
 curl --fail --silent --show-error http://127.0.0.1:8000/api/health
 echo
 curl --fail --silent --show-error http://127.0.0.1/api/health
