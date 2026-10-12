@@ -116,6 +116,21 @@ Web 后端提供：
 
 对话会话目前保存在 FastAPI 进程内存中，服务重启后会失效。这适合 Demo；正式部署可将会话状态替换为 Redis 或数据库存储。
 
+### Ubuntu 服务器部署
+
+仓库的 `deploy/` 目录包含单进程 systemd 服务、Nginx 反向代理和安装脚本。服务器上的项目路径为 `/opt/cycling-food-lodging-agent`，完成虚拟环境和 `.env` 配置后，以 root 运行：
+
+```bash
+bash deploy/install-server.sh
+```
+
+服务仅监听服务器本机的 `127.0.0.1:8000`，公网请求经 Nginx 的 80 端口转发。应用进程使用无登录权限的 `cyclingagent` 用户，只有 `.env` 和 `.runtime/` 由该用户持有。查看状态和日志：
+
+```bash
+systemctl status cycling-agent --no-pager
+journalctl -u cycling-agent -n 100 --no-pager
+```
+
 ## 运行 LLM 版本（Ollama / DeepSeek / OpenAI）
 
 首次使用先安装 Ollama，然后下载模型：
