@@ -151,14 +151,19 @@ class AmapClient:
 
             info = data.get("info", "未知错误")
             infocode = str(data.get("infocode", "未知错误码"))
-            if (
+            # 1002x 通常是限流，300xx 表示地图引擎本次没有正常返回结果。
+            # 两者都有可能是暂时性故障，因此只做有限次数的退避重试。
+            is_retryable = (
                 infocode in self.QPS_LIMIT_INFOCODES
-                and attempt < self.max_retries
-            ):
+                or infocode.startswith("3")
+            )
+            if is_retryable and attempt < self.max_retries:
                 time.sleep(0.8 * (2**attempt))
                 continue
 
-            raise AmapError(f"高德 API 返回失败：{info}（{infocode}）")
+            raise AmapError(
+                f"高德 {endpoint} API 返回失败：{info}（{infocode}）"
+            )
 
         raise AmapError(f"高德 {endpoint} 请求重试后仍失败")
 

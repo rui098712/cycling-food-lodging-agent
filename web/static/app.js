@@ -338,6 +338,28 @@ async function ensureChatSession() {
   appendChatMessage("assistant", body.reply);
 }
 
+async function sendChatMessage(message, mayRecoverSession = true) {
+  await ensureChatSession();
+  const response = await fetch(`/api/chat/sessions/${chatSessionId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  const body = await response.json();
+
+  if (response.status === 404 && mayRecoverSession) {
+    chatSessionId = null;
+    chatLog.append(
+      element("div", "tool-event", "会话已过期，已自动新建会话并重新发送本条消息")
+    );
+    await ensureChatSession();
+    return sendChatMessage(message, false);
+  }
+
+  if (!response.ok) throw new Error(getErrorMessage(body, "Agent 回复失败"));
+  return body;
+}
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = chatInput.value.trim();
@@ -347,14 +369,7 @@ chatForm.addEventListener("submit", async (event) => {
   appendChatMessage("user", message);
   chatSend.disabled = true;
   try {
-    await ensureChatSession();
-    const response = await fetch(`/api/chat/sessions/${chatSessionId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(getErrorMessage(body, "Agent 回复失败"));
+    const body = await sendChatMessage(message);
     (body.tool_trace || []).forEach((item) => {
       chatLog.append(element("div", "tool-event", `工具 · ${item.summary}`));
     });

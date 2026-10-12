@@ -197,12 +197,16 @@ class PlanningJobManager:
         *,
         planner_factory: Callable[[], CyclingPlannerAgent] | None = None,
         parser_factory: Callable[[], tuple[str, Any]] | None = None,
-        max_workers: int = 2,
+        max_workers: int = 1,
     ):
+        if max_workers < 1:
+            raise ValueError("max_workers 必须大于 0")
+
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.planner_factory = planner_factory or self._default_planner_factory
         self.parser_factory = parser_factory or create_parser
+        self.max_workers = max_workers
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="web-plan",

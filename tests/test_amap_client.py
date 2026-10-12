@@ -123,6 +123,33 @@ class AmapClientTests(unittest.TestCase):
         self.assertEqual(fake_session.call_count, 2)
         self.assertTrue(mocked_sleep.called)
 
+    @patch("cycling_agent.amap_client.time.sleep")
+    def test_engine_response_error_is_retried(self, mocked_sleep):
+        client = AmapClient(
+            "test-key",
+            max_retries=2,
+            max_requests_per_second=1000,
+        )
+        fake_session = FakeSession(
+            responses=(
+                FakeResponse(
+                    {
+                        "status": "0",
+                        "info": "RESULTS_ARE_EMPTY",
+                        "infocode": "30007",
+                    }
+                ),
+                FakeResponse(),
+            )
+        )
+        client._thread_local.session = fake_session
+
+        data = client._get("https://example.com/test", {"city": "广州"})
+
+        self.assertEqual(data["status"], "1")
+        self.assertEqual(fake_session.call_count, 2)
+        self.assertTrue(mocked_sleep.called)
+
 
 if __name__ == "__main__":
     unittest.main()

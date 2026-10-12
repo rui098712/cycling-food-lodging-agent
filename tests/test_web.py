@@ -80,6 +80,14 @@ class WebApiTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("规划任务没有在测试时限内完成")
 
+    def test_planning_jobs_are_serial_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = PlanningJobManager(directory, planner_factory=FakePlanner)
+            try:
+                self.assertEqual(manager.max_workers, 1)
+            finally:
+                manager.shutdown()
+
     def test_place_form_returns_json_and_downloadable_gpx(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = PlanningJobManager(
