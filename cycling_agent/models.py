@@ -38,6 +38,7 @@ class BicycleRoute:
     duration_seconds: int
     steps: tuple[RouteStep, ...]
     source: str = "amap"
+    planning_segment_count: int = 1
 
     @property
     def point_count(self) -> int:

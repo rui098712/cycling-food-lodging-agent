@@ -150,6 +150,53 @@ class AmapClientTests(unittest.TestCase):
         self.assertEqual(fake_session.call_count, 2)
         self.assertTrue(mocked_sleep.called)
 
+    @patch("cycling_agent.amap_client.time.sleep")
+    def test_long_bicycle_route_is_split_and_merged(self, mocked_sleep):
+        route_response = FakeResponse(
+            {
+                "status": "1",
+                "route": {
+                    "paths": [
+                        {
+                            "distance": "1000",
+                            "duration": "600",
+                            "steps": [
+                                {
+                                    "step_distance": "1000",
+                                    "polyline": "116.0,40.0;117.0,39.0",
+                                    "instruction": "测试路段",
+                                    "road_name": "测试路",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        client = AmapClient(
+            "test-key",
+            max_requests_per_second=1000,
+        )
+        fake_session = FakeSession(responses=(route_response,))
+        client._thread_local.session = fake_session
+
+        route = client.bicycle_route((116.0, 40.0), (128.0, 30.0))
+
+        self.assertGreater(route.planning_segment_count, 1)
+        self.assertEqual(
+            fake_session.call_count,
+            route.planning_segment_count,
+        )
+        self.assertEqual(
+            route.distance_meters,
+            1000 * route.planning_segment_count,
+        )
+        self.assertEqual(
+            route.duration_seconds,
+            600 * route.planning_segment_count,
+        )
+        self.assertEqual(len(route.steps), route.planning_segment_count)
+
 
 if __name__ == "__main__":
     unittest.main()

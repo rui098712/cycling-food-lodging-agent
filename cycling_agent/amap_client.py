@@ -1,5 +1,6 @@
 """高德 Web 服务 API 客户端：Agent 可以调用的地图工具。"""
 
+import math
 import threading
 import time
 from typing import Any
@@ -16,10 +17,15 @@ from cycling_agent.models import (
     Poi,
     RouteStep,
 )
+from cycling_agent.route_progress import coordinate_distance_meters
 
 
 class AmapError(RuntimeError):
     """高德接口调用失败。"""
+
+    def __init__(self, message: str, *, infocode: str | None = None):
+        super().__init__(message)
+        self.infocode = infocode
 
 
 def _parse_coordinate(value: str) -> Coordinate:
@@ -57,6 +63,11 @@ class AmapClient:
     """封装 HTTP、鉴权和高德响应解析，避免业务代码直接处理 JSON。"""
 
     QPS_LIMIT_INFOCODES = {"10020", "10021", "10022", "10023", "10029"}
+    # 骑行路线过长时，高德可能只返回 30007。道路里程通常长于
+    # 直线距离，因此在直线距离达到 450 km 前主动分段，每段目标
+    # 约 280 km，然后合并高德返回的真实道路折线。
+    LONG_ROUTE_SPLIT_THRESHOLD_METERS = 450_000
+    LONG_ROUTE_SEGMENT_TARGET_METERS = 280_000
 
     def __init__(
         self,
@@ -162,7 +173,8 @@ class AmapClient:
                 continue
 
             raise AmapError(
-                f"高德 {endpoint} API 返回失败：{info}（{infocode}）"
+                f"高德 {endpoint} API 返回失败：{info}（{infocode}）",
+                infocode=infocode,
             )
 
         raise AmapError(f"高德 {endpoint} 请求重试后仍失败")
@@ -226,6 +238,34 @@ class AmapClient:
         origin: Coordinate,
         destination: Coordinate,
     ) -> BicycleRoute:
+        direct_distance = coordinate_distance_meters(origin, destination)
+        if direct_distance > self.LONG_ROUTE_SPLIT_THRESHOLD_METERS:
+            return self._segmented_bicycle_route(
+                origin,
+                destination,
+                direct_distance=direct_distance,
+            )
+
+        try:
+            return self._request_bicycle_route(origin, destination)
+        except AmapError as error:
+            # 某些道路绕行很长，直线距离未达预分段阈值也可能
+            # 超出单次算路能力。仅对较长且明确返回 30007 的路线兜底分段。
+            if error.infocode == "30007" and direct_distance > 300_000:
+                return self._segmented_bicycle_route(
+                    origin,
+                    destination,
+                    direct_distance=direct_distance,
+                )
+            raise
+
+    def _request_bicycle_route(
+        self,
+        origin: Coordinate,
+        destination: Coordinate,
+    ) -> BicycleRoute:
+        """请求一段高德骑行路线。"""
+
         data = self._get(
             "https://restapi.amap.com/v5/direction/bicycling",
             {
@@ -253,6 +293,43 @@ class AmapClient:
             distance_meters=int(path["distance"]),
             duration_seconds=int(path["duration"]),
             steps=steps,
+        )
+
+    def _segmented_bicycle_route(
+        self,
+        origin: Coordinate,
+        destination: Coordinate,
+        *,
+        direct_distance: float,
+    ) -> BicycleRoute:
+        """沿起终点连线生成分段锚点，逐段请求并合并真实道路。"""
+
+        segment_count = max(
+            2,
+            math.ceil(
+                direct_distance / self.LONG_ROUTE_SEGMENT_TARGET_METERS
+            ),
+        )
+        longitude1, latitude1 = origin
+        longitude2, latitude2 = destination
+        anchors = tuple(
+            (
+                longitude1 + (longitude2 - longitude1) * index / segment_count,
+                latitude1 + (latitude2 - latitude1) * index / segment_count,
+            )
+            for index in range(segment_count + 1)
+        )
+
+        routes = tuple(
+            self._request_bicycle_route(start, end)
+            for start, end in zip(anchors, anchors[1:])
+        )
+        return BicycleRoute(
+            distance_meters=sum(route.distance_meters for route in routes),
+            duration_seconds=sum(route.duration_seconds for route in routes),
+            steps=tuple(step for route in routes for step in route.steps),
+            source="amap",
+            planning_segment_count=len(routes),
         )
 
     def bicycle_distance(

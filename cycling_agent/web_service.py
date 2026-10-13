@@ -169,8 +169,14 @@ def trip_plan_to_json(plan: TripPlan) -> dict[str, Any]:
             "source_label": (
                 "导入的 GPX 固定轨迹"
                 if plan.route.source == "gpx"
-                else "高德骑行路径规划"
+                else (
+                    f"高德分段骑行路径规划（"
+                    f"{plan.route.planning_segment_count} 段）"
+                    if plan.route.planning_segment_count > 1
+                    else "高德骑行路径规划"
+                )
             ),
+            "planning_segment_count": plan.route.planning_segment_count,
             "start_address": plan.start.formatted_address,
             "end_address": plan.end.formatted_address,
             "distance_meters": plan.route.distance_meters,

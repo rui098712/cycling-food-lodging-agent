@@ -117,6 +117,10 @@ class WebApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(payload["status"], "completed")
                 self.assertEqual(payload["result"]["route"]["distance_meters"], 10_000)
+                self.assertEqual(
+                    payload["result"]["route"]["planning_segment_count"],
+                    1,
+                )
                 self.assertEqual(payload["result"]["lunch_recommendations"], [])
                 self.assertEqual(
                     payload["result"]["lunch_search_areas"]["cities"],
